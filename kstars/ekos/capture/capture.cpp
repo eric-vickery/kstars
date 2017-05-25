@@ -52,7 +52,10 @@
 #define MF_RA_DIFF_LIMIT    4
 #define MAX_CAPTURE_RETRIES 3
 
-#define SQ_FORMAT_VERSION   1.6
+// Current Sequence File Format:
+#define SQ_FORMAT_VERSION   1.7
+// We accept file formats with version back to:
+#define SQ_COMPAT_VERSION   1.6
 
 namespace Ekos
 {
@@ -453,8 +456,6 @@ void Capture::stop(bool abort)
     ADURaw.clear();
     ExpRaw.clear();
 
-    calibrationStage = CAL_NONE;
-
     if (activeJob)
     {
         if (activeJob->getStatus() == SequenceJob::JOB_BUSY)
@@ -464,10 +465,18 @@ void Capture::stop(bool abort)
             emit newStatus(Ekos::CAPTURE_ABORTED);
         }
 
+        // In case
         if (activeJob->isPreview() == false)
         {
             activeJob->disconnect(this);
             activeJob->reset();
+        }
+        else if (calibrationStage == CAL_CALIBRATION)
+        {
+            activeJob->disconnect(this);
+            activeJob->reset();
+            activeJob->setPreview(false);
+            currentCCD->setUploadMode(rememberUploadMode);
         }
         else // Delete preview job
         {
@@ -478,6 +487,7 @@ void Capture::stop(bool abort)
 
     }
 
+    calibrationStage = CAL_NONE;
     state = CAPTURE_IDLE;
 
     // Turn off any calibration light, IF they were turned on by Capture module
@@ -670,6 +680,24 @@ void Capture::checkCCD(int ccdNum)
             }
         }
 
+        gainLabel->setEnabled(currentCCD->hasGain());
+        gainIN->setEnabled(currentCCD->hasGain());
+        if (gainIN->isEnabled())
+        {
+            double gain=0, min=0,max=0,step=1;
+            currentCCD->getGainMinMaxStep(&min, &max, &step);
+            if (currentCCD->getGain(&gain))
+            {
+                gainIN->setMinimum(min);
+                gainIN->setMaximum(max);
+                if (step > 0)
+                    gainIN->setSingleStep(step);
+                gainIN->setValue(gain);
+            }
+        }
+        else
+            gainIN->clear();
+
         liveVideoB->setEnabled(currentCCD->hasVideoStream());
         setVideoStreamEnabled(currentCCD->isStreamingEnabled());
 
@@ -678,6 +706,18 @@ void Capture::checkCCD(int ccdNum)
         connect(currentCCD, SIGNAL(newRemoteFile(QString)), this, SLOT(setNewRemoteFile(QString)));
         connect(currentCCD, SIGNAL(videoStreamToggled(bool)), this, SLOT(setVideoStreamEnabled(bool)));
     }
+}
+
+void Capture::setGuideChip(ISD::CCDChip * chip)
+{
+    guideChip = chip;
+    // We should suspend guide in two scenarios:
+    // 1. If guide chip is within the primary CCD, then we cannot download any data from guide chip while primary CCD is downloading.
+    // 2. If we have two CCDs running from ONE driver (Multiple-Devices-Per-Driver mpdp is true). Same issue as above, only one download
+    // at a time.
+    // After primary CCD download is complete, we resume guiding.
+    suspendGuideOnDownload = (currentCCD->getChip(ISD::CCDChip::GUIDE_CCD) == guideChip) ||
+                             (guideChip->getCCD() == currentCCD && currentCCD->getDriverInfo()->getAuxInfo().value("mdpd", false).toBool());
 }
 
 void Capture::resetFrameToZero()
@@ -1106,6 +1146,8 @@ void Capture::newFITS(IBLOB * bp)
             return;
         }
     }
+    else
+        sendNewImage(NULL, activeJob->getActiveChip());
 
     setCaptureComplete();
 
@@ -1203,10 +1245,9 @@ void Capture::processJobCompletion()
 
         //Resume guiding if it was suspended before
         //if (isAutoGuiding && currentCCD->getChip(ISD::CCDChip::GUIDE_CCD) == guideChip)
-        if (guideState == GUIDE_SUSPENDED && currentCCD->getChip(ISD::CCDChip::GUIDE_CCD) == guideChip)
+        if (guideState == GUIDE_SUSPENDED && suspendGuideOnDownload)
             emit resumeGuiding();
     }
-
 }
 
 bool Capture::resumeSequence()
@@ -1239,7 +1280,7 @@ bool Capture::resumeSequence()
 
             //Resume guiding if it was suspended before
             //if (isAutoGuiding && currentCCD->getChip(ISD::CCDChip::GUIDE_CCD) == guideChip)
-            if (guideState == GUIDE_SUSPENDED && currentCCD->getChip(ISD::CCDChip::GUIDE_CCD) == guideChip)
+            if (guideState == GUIDE_SUSPENDED && suspendGuideOnDownload)
                 emit resumeGuiding();
 
             return true;
@@ -1262,7 +1303,7 @@ bool Capture::resumeSequence()
         }
 
         // If we suspended guiding due to primary chip download, resume guide chip guiding now
-        if (guideState == GUIDE_SUSPENDED && currentCCD->getChip(ISD::CCDChip::GUIDE_CCD) == guideChip)
+        if (guideState == GUIDE_SUSPENDED && suspendGuideOnDownload)
             emit resumeGuiding();
 
         if (guideState == GUIDE_GUIDING && Options::ditherEnabled() && activeJob->getFrameType() == FRAME_LIGHT && --ditherCounter == 0)
@@ -1363,6 +1404,12 @@ void Capture::captureImage()
 
             calibrationStage = CAL_CALIBRATION;
             activeJob->setPreview(true);
+            // We need to be in preview mode and in client mode for this to work
+            rememberUploadMode = currentCCD->getUploadMode();
+            if (currentCCD->getUploadMode() != ISD::CCD::UPLOAD_CLIENT)
+            {
+                currentCCD->setUploadMode(ISD::CCD::UPLOAD_CLIENT);
+            }
         }
     }
 
@@ -1484,10 +1531,13 @@ void Capture::checkSeqBoundary(const QString &path)
     {
         tempName = it.next();
         QFileInfo info(tempName);
-        tempName = info.baseName();
+        //tempName = info.baseName();
+        tempName = info.completeBaseName();
 
+        QString finalSeqPrefix = seqPrefix;
+        finalSeqPrefix.remove("_ISO8601");
         // find the prefix first
-        if (tempName.startsWith(seqPrefix) == false)
+        if (tempName.startsWith(finalSeqPrefix) == false)
             continue;
 
         seqFileCount++;
@@ -1557,13 +1607,16 @@ void Capture::setExposureProgress(ISD::CCDChip * tChip, double value, IPState st
         return;
     }
 
-    if (value == 0)
+    qDebug() << "Exposure with value " << value;
+
+    if (state == IPS_OK)
     {
         activeJob->setCaptureRetires(0);
+        activeJob->setExposeLeft(0);
 
         if (currentCCD && currentCCD->getUploadMode() == ISD::CCD::UPLOAD_LOCAL)
         {
-            if (activeJob && activeJob->getStatus() == SequenceJob::JOB_BUSY && activeJob->getExposeLeft() == 0 && state == IPS_OK)
+            if (activeJob && activeJob->getStatus() == SequenceJob::JOB_BUSY)
             {
                 newFITS(0);
                 return;
@@ -1571,7 +1624,7 @@ void Capture::setExposureProgress(ISD::CCDChip * tChip, double value, IPState st
         }
 
         //if (isAutoGuiding && Options::useEkosGuider() && currentCCD->getChip(ISD::CCDChip::GUIDE_CCD) == guideChip)
-        if (guideState == GUIDE_GUIDING && Options::guiderType() == 0 && currentCCD->getChip(ISD::CCDChip::GUIDE_CCD) == guideChip)
+        if (guideState == GUIDE_GUIDING && Options::guiderType() == 0 && suspendGuideOnDownload)
         {
             if (Options::captureLogging())
                 qDebug() << "Capture: Autoguiding suspended until primary CCD chip completes downloading...";
@@ -1636,6 +1689,9 @@ void Capture::addJob(bool preview)
 
     if (ISOCombo->isEnabled())
         job->setISOIndex(ISOCombo->currentIndex());
+
+    if (gainIN->isEnabled())
+        job->setGain(gainIN->value());
 
     job->setTransforFormat(static_cast<ISD::CCD::TransferFormat>(transferFormatCombo->currentIndex()));
 
@@ -2393,7 +2449,7 @@ bool Capture::loadSequenceQueue(const QString &fileURL)
         if (root)
         {
             double sqVersion= atof(findXMLAttValu(root, "version"));
-            if (sqVersion < SQ_FORMAT_VERSION)
+            if (sqVersion < SQ_COMPAT_VERSION)
             {
                 appendLogText(i18n("Deprecated sequence file format version %1. Please construct a new sequence file.", sqVersion));
                 return false;
@@ -2569,6 +2625,11 @@ bool Capture::processJobInfo(XMLEle * root)
         {
             if (ISOCombo->isEnabled())
                 ISOCombo->setCurrentIndex(atoi(pcdataXMLEle(ep)));
+        }
+        else if (!strcmp(tagXMLEle(ep), "Gain"))
+        {
+            if (gainIN->isEnabled())
+                gainIN->setValue(atof(pcdataXMLEle(ep)));
         }
         else if (!strcmp(tagXMLEle(ep), "FormatIndex"))
         {
@@ -2784,6 +2845,8 @@ bool Capture::saveSequenceQueue(const QString &path)
             outstream << "<RemoteDirectory>" << job->getRemoteDir() << "</RemoteDirectory>" << endl;
         if (job->getISOIndex() != -1)
             outstream << "<ISOIndex>" << (job->getISOIndex()) << "</ISOIndex>" << endl;
+        if (job->getGain() != -1)
+            outstream << "<Gain>" << (job->getGain()) << "</Gain>" << endl;
         outstream << "<FormatIndex>" << (job->getTransforFormat()) << "</FormatIndex>" << endl;
 
         outstream << "<Calibration>" << endl;
@@ -2897,6 +2960,9 @@ void Capture::syncGUIToJob(SequenceJob * job)
     if (ISOCombo->isEnabled())
         ISOCombo->setCurrentIndex(job->getISOIndex());
 
+    if (gainIN->isEnabled())
+        gainIN->setValue(job->getGain());
+
     transferFormatCombo->setCurrentIndex(job->getTransforFormat());
 }
 
@@ -2960,6 +3026,10 @@ void Capture::constructPrefix(QString &imagePrefix)
             // Decimal
         else
             imagePrefix += QString::number(exposureIN->value(), 'f', 3) + QString("_secs");
+    }
+    if (ISOCheck->isChecked())
+    {
+        imagePrefix += "_ISO8601";
     }
 }
 
@@ -4013,6 +4083,7 @@ IPState Capture::processPreCaptureCalibrationStage()
     }
 
     calibrationStage = CAL_PRECAPTURE_COMPLETE;
+
     return IPS_OK;
 }
 
@@ -4044,13 +4115,19 @@ bool Capture::processPostCaptureCalibrationStage()
                 {
                     appendLogText(i18n("Current ADU %1 within target ADU tolerance range.", QString::number(currentADU, 'f', 0)));
                     activeJob->setPreview(false);
+                    currentCCD->setUploadMode(rememberUploadMode);
 
                     // Get raw prefix
                     exposureIN->setValue(activeJob->getExposure());
                     QString imagePrefix = activeJob->getRawPrefix();
                     constructPrefix(imagePrefix);
                     activeJob->setFullPrefix(imagePrefix);
+                    seqPrefix = imagePrefix;
                     currentCCD->setSeqPrefix(imagePrefix);
+
+                    QString finalRemoteDir = activeJob->getFITSDir();
+                    finalRemoteDir.replace(activeJob->getRootFITSDir(), activeJob->getRemoteDir()).replace("//", "/");
+                    currentCCD->updateUploadSettings(finalRemoteDir);
 
                     calibrationStage = CAL_CALIBRATION_COMPLETE;
                     startNextExposure();
@@ -4082,6 +4159,11 @@ bool Capture::processPostCaptureCalibrationStage()
             calibrationStage = CAL_CALIBRATION;
             activeJob->setExposure(nextExposure);
             activeJob->setPreview(true);
+            rememberUploadMode = activeJob->getUploadMode();
+            if (currentCCD->getUploadMode() != ISD::CCD::UPLOAD_CLIENT)
+            {
+                currentCCD->setUploadMode(ISD::CCD::UPLOAD_CLIENT);
+            }
 
             startNextExposure();
             return false;
