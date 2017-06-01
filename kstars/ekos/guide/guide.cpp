@@ -43,6 +43,7 @@
 
 #define driftGraph_WIDTH	200
 #define driftGraph_HEIGHT	200
+#define CAPTURE_TIMEOUT_THRESHOLD 5000
 #define MAX_GUIDE_STARS 10
 
 namespace Ekos
@@ -56,15 +57,15 @@ Guide::Guide() : QWidget()
     QDBusConnection::sessionBus().registerObject("/KStars/Ekos/Guide",  this);
 
     // Devices
-    currentCCD = NULL;
-    currentTelescope = NULL;
-    guider = NULL;
+    currentCCD = nullptr;
+    currentTelescope = nullptr;
+    guider = nullptr;
 
     // AO Driver
-    AODriver= NULL;
+    AODriver = nullptr;
 
     // ST4 Driver
-    GuideDriver=NULL;
+    GuideDriver = nullptr;
 
     // Auto Star
     autoStarCaptured = false;
@@ -406,9 +407,9 @@ void Guide::checkCCD(int ccdNum)
 
 void Guide::syncCCDInfo()
 {
-    INumberVectorProperty * nvp = NULL;
+    INumberVectorProperty * nvp = nullptr;
 
-    if (currentCCD == NULL)
+    if (currentCCD == nullptr)
         return;
 
     if (useGuideHead)
@@ -436,7 +437,7 @@ void Guide::syncCCDInfo()
 
 void Guide::syncTelescopeInfo()
 {
-    if (currentTelescope == NULL)
+    if (currentTelescope == nullptr)
         return;
 
     INumberVectorProperty * nvp = currentTelescope->getBaseDevice()->getNumber("TELESCOPE_INFO");
@@ -471,7 +472,7 @@ void Guide::syncTelescopeInfo()
 
 void Guide::updateGuideParams()
 {
-    if (currentCCD == NULL)
+    if (currentCCD == nullptr)
         return;
 
     if (currentCCD->hasGuideHead() == false)
@@ -479,7 +480,7 @@ void Guide::updateGuideParams()
 
     ISD::CCDChip * targetChip = currentCCD->getChip(useGuideHead ? ISD::CCDChip::GUIDE_CCD : ISD::CCDChip::PRIMARY_CCD);
 
-    if (targetChip == NULL)
+    if (targetChip == nullptr)
     {
         appendLogText(i18n("Connection to the guide CCD is lost."));
         return;
@@ -615,7 +616,7 @@ bool Guide::captureOneFrame()
 {
     captureTimeout.stop();
 
-    if (currentCCD == NULL)
+    if (currentCCD == nullptr)
         return false;
 
     if (currentCCD->isConnected() == false)
@@ -666,8 +667,8 @@ bool Guide::captureOneFrame()
     if (Options::guideLogging())
         qDebug() << "Guide: Capturing frame...";
 
-    // Timeout is exposure duration + 2 seconds
-    captureTimeout.start(seqExpose*1000 + 2000);
+    // Timeout is exposure duration + timeout threshold in seconds
+    captureTimeout.start(seqExpose*1000 + CAPTURE_TIMEOUT_THRESHOLD);
 
     targetChip->capture(seqExpose);
 
@@ -784,7 +785,7 @@ void Guide::processCaptureTimeout()
     ISD::CCDChip * targetChip = currentCCD->getChip(useGuideHead ? ISD::CCDChip::GUIDE_CCD : ISD::CCDChip::PRIMARY_CCD);
     targetChip->abortExposure();
     targetChip->capture(exposureIN->value());
-    captureTimeout.start(exposureIN->value()*1000 + 2000);
+    captureTimeout.start(exposureIN->value()*1000 + CAPTURE_TIMEOUT_THRESHOLD);
 }
 
 void Guide::newFITS(IBLOB * bp)
@@ -893,7 +894,7 @@ void Guide::clearLog()
 
 void Guide::setDECSwap(bool enable)
 {
-    if (ST4Driver == NULL || guider == NULL)
+    if (ST4Driver == nullptr || guider == nullptr)
         return;
 
     if (guiderType == GUIDE_INTERNAL)
@@ -905,8 +906,7 @@ void Guide::setDECSwap(bool enable)
 
 bool Guide::sendPulse( GuideDirection ra_dir, int ra_msecs, GuideDirection dec_dir, int dec_msecs )
 {
-
-    if (GuideDriver == NULL || (ra_dir == NO_DIR && dec_dir == NO_DIR))
+    if (GuideDriver == nullptr || (ra_dir == NO_DIR && dec_dir == NO_DIR))
         return false;
 
     if (state == GUIDE_CALIBRATING)
@@ -917,7 +917,7 @@ bool Guide::sendPulse( GuideDirection ra_dir, int ra_msecs, GuideDirection dec_d
 
 bool Guide::sendPulse( GuideDirection dir, int msecs )
 {
-    if (GuideDriver == NULL || dir==NO_DIR)
+    if (GuideDriver == nullptr || dir == NO_DIR)
         return false;
 
     if (state == GUIDE_CALIBRATING)
@@ -942,19 +942,18 @@ void Guide::processRapidStarData(ISD::CCDChip * targetChip, double dx, double dy
     // Check if guide star is lost
     if (dx == -1 && dy == -1 && fit == -1)
     {
-        KMessageBox::error(NULL, i18n("Lost track of the guide star. Rapid guide aborted."));
-
+        KMessageBox::error(nullptr, i18n("Lost track of the guide star. Rapid guide aborted."));
         guider->abort();
         return;
     }
 
     FITSView * targetImage = targetChip->getImage(FITS_GUIDE);
 
-    if (targetImage == NULL)
+    if (targetImage == nullptr)
     {
-        pmath->setImageView(NULL);
-        guider->setImageView(NULL);
-        calibration->setImageView(NULL);
+        pmath->setImageView(nullptr);
+        guider->setImageView(nullptr);
+        calibration->setImageView(nullptr);
     }
 
     if (rapidGuideReticleSet == false)
@@ -1338,7 +1337,9 @@ void Guide::setStatus(Ekos::GuideState newState)
             appendLogText(i18n("Dithering completed successfully."));
             // Go back to guiding state immediately
             setStatus(GUIDE_GUIDING);
-            capture();
+            // Only capture again if we are using internal guider
+            if (guiderType == GUIDE_INTERNAL)
+                capture();
             break;
         default:
             break;
@@ -1347,7 +1348,7 @@ void Guide::setStatus(Ekos::GuideState newState)
 
 void Guide::updateCCDBin(int index)
 {
-    if (currentCCD == NULL && guiderType != GUIDE_INTERNAL)
+    if (currentCCD == nullptr && guiderType != GUIDE_INTERNAL)
         return;
 
     ISD::CCDChip * targetChip = currentCCD->getChip(useGuideHead ? ISD::CCDChip::GUIDE_CCD : ISD::CCDChip::PRIMARY_CCD);
@@ -1362,7 +1363,7 @@ void Guide::updateCCDBin(int index)
 
 void Guide::processCCDNumber(INumberVectorProperty * nvp)
 {
-    if (currentCCD == NULL || strcmp(nvp->device, currentCCD->getDeviceName()) || guiderType != GUIDE_INTERNAL)
+    if (currentCCD == nullptr || strcmp(nvp->device, currentCCD->getDeviceName()) || guiderType != GUIDE_INTERNAL)
         return;
 
     if ( (!strcmp(nvp->name, "CCD_BINNING") && useGuideHead == false) || (!strcmp(nvp->name, "GUIDER_BINNING") && useGuideHead) )
@@ -1584,19 +1585,22 @@ void Guide::updateTrackingBoxSize(int currentIndex)
 
 bool Guide::selectAutoStar()
 {
-    if (currentCCD == NULL)
+    if (currentCCD == nullptr)
         return false;
 
     ISD::CCDChip * targetChip = currentCCD->getChip(useGuideHead ? ISD::CCDChip::GUIDE_CCD : ISD::CCDChip::PRIMARY_CCD);
-    if (targetChip == NULL)
+
+    if (targetChip == nullptr)
         return false;
 
     FITSView * targetImage    = targetChip->getImageView(FITS_GUIDE);
-    if (targetImage == NULL)
+
+    if (targetImage == nullptr)
         return false;
 
     FITSData * imageData = targetImage->getImageData();
-    if (imageData == NULL)
+
+    if (imageData == nullptr)
         return false;
 
     imageData->findStars();
@@ -2205,7 +2209,7 @@ bool Guide::executeOneOperation(GuideState operation)
             // Do we need to take a dark frame?
             if (Options::guideDarkFrameEnabled())
             {
-                FITSData * darkData       = NULL;
+                FITSData * darkData = nullptr;
                 QVariantMap settings = frameSettings[targetChip];
                 uint16_t offsetX = settings["x"].toInt() / settings["binx"].toInt();
                 uint16_t offsetY = settings["y"].toInt() / settings["biny"].toInt();
@@ -2287,7 +2291,7 @@ void Guide::showFITSViewer()
                 fv = KStars::Instance()->genericFITSViewer();
             else
             {
-                fv = new FITSViewer(Options::independentWindowFITS() ? NULL : KStars::Instance());
+                fv = new FITSViewer(Options::independentWindowFITS() ? nullptr : KStars::Instance());
                 KStars::Instance()->getFITSViewersList().append(fv);
             }
 

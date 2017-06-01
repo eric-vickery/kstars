@@ -68,7 +68,7 @@ bool OfflineAstrometryParser::init()
     if (astrometryNetOK() == false)
     {
         if (align && align->isEnabled())
-            KMessageBox::information(NULL, i18n("Failed to find astrometry.net binaries. Please ensure astrometry.net is installed and try again."),
+            KMessageBox::information(nullptr, i18n("Failed to find astrometry.net binaries. Please ensure astrometry.net is installed and try again."),
                                      i18n("Missing astrometry files"), "missing_astrometry_binaries_warning");
 
         return false;
@@ -250,6 +250,14 @@ bool OfflineAstrometryParser::startSovler(const QString &filename,  const QStrin
             && (args.contains("parity") == false)
             && (args.contains("-3") || args.contains("-L")) )
         solverArgs << "--parity" << parity;
+
+    QString confPath;
+    if(Options::astrometryConfFileIsInternal())
+        confPath = QCoreApplication::applicationDirPath()+"/astrometry/bin/astrometry.cfg";
+    else
+        confPath = Options::astrometryConfFile();
+    solverArgs << "--config" << confPath;
+
     QString solutionFile = QDir::tempPath() + "/solution.wcs";
     solverArgs << "-W" <<  solutionFile << filename;
 

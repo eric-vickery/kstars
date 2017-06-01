@@ -111,6 +111,9 @@ WIView::WIView(QWidget * parent) : QWidget(parent), m_CurrentObjectListName(-1)
     m_CenterButtonObj = m_BaseObj->findChild<QQuickItem *>("centerButtonObj");
     connect(m_CenterButtonObj, SIGNAL(centerButtonClicked()), this, SLOT(onCenterButtonClicked()));
 
+    autoCenterCheckbox = m_DetailsViewObj->findChild<QObject *>("autoCenterCheckbox");
+    autoTrackCheckbox = m_DetailsViewObj->findChild<QObject *>("autoTrackCheckbox");
+
     m_SlewTelescopeButtonObj = m_BaseObj->findChild<QQuickItem *>("slewTelescopeButtonObj");
     connect(m_SlewTelescopeButtonObj, SIGNAL(slewTelescopeButtonClicked()), this, SLOT(onSlewTelescopeButtonClicked()));
 
@@ -280,19 +283,21 @@ void WIView::onCenterButtonClicked()
     ///Center map on selected sky-object
     SkyObject * so = m_CurSoItem->getSkyObject();
     KStars * kstars = KStars::Instance();
-    if (so != 0)
+    if (so)
     {
         kstars->map()->setFocusPoint(so);
         kstars->map()->setFocusObject(so);
         kstars->map()->setDestination(*kstars->map()->focusPoint());
+        Options::setIsTracking(autoTrackCheckbox->property("checked")==true);
     }
 }
 
 void WIView::onSlewTelescopeButtonClicked()
 {
 
-    if(KMessageBox::Continue==KMessageBox::warningContinueCancel(NULL, "Are you sure you want your telescope to slew to this object?",
-            i18n("Continue Slew"),  KStandardGuiItem::cont(), KStandardGuiItem::cancel(), "continue_wi_slew_warning"))
+    if (KMessageBox::Continue == KMessageBox::warningContinueCancel(nullptr, "Are you sure you want your telescope to slew to this object?",
+                                                                    i18n("Continue Slew"),  KStandardGuiItem::cont(),
+                                                                    KStandardGuiItem::cancel(), "continue_wi_slew_warning"))
     {
 
 #ifdef HAVE_INDI
@@ -310,7 +315,7 @@ void WIView::onSlewTelescopeButtonClicked()
         if (gd->getType() != KSTARS_TELESCOPE)
             continue;
 
-        if (bd == NULL)
+        if (bd == nullptr)
             continue;
 
         if (bd->isConnected() == false)
@@ -491,7 +496,7 @@ void WIView::loadDetailsView(SkyObjItem * soitem, int index)
     QObject * posTextObj = m_DetailsViewObj->findChild<QObject *>("posTextObj");
     QObject * detailImage = m_DetailsViewObj->findChild<QObject *>("detailImage");
     QObject * detailsTextObj = m_DetailsViewObj->findChild<QObject *>("detailsTextObj");
-    QObject * autoCenterCheckBox = m_DetailsViewObj->findChild<QObject *>("autoCenterCheckbox");
+
 
     sonameObj->setProperty("text", soitem->getDescName());
     posTextObj->setProperty("text", soitem->getPosition());
@@ -517,7 +522,7 @@ void WIView::loadDetailsView(SkyObjItem * soitem, int index)
     QString details = summary + "<BR>" + sbText + "<BR>" + magText + "<BR>" + sizeText;
     detailsTextObj->setProperty("text", details);
 
-    if(autoCenterCheckBox->property("checked")==true){
+    if(autoCenterCheckbox->property("checked")==true){
         QTimer::singleShot(500, this, SLOT(onCenterButtonClicked()));
     }
 
