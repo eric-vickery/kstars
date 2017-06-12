@@ -235,17 +235,56 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 endif()
 
 if (UNIX)
-add_definitions(-Dfexceptions)
+  add_definitions(-Dfexceptions)
 
-# TEMPORARY: To disable QCustomPlot warning until 2.0.0 is released which fixes these warnings
-add_definitions(-Wno-non-virtual-dtor)
+  # TEMPORARY: To disable QCustomPlot warning until 2.0.0 is released which fixes these warnings
+  add_definitions(-Wno-non-virtual-dtor)
 
-# Optimize binary size by dropping unneeded symbols at linking stage
-if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdata-sections -ffunction-sections")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gc-sections")
-endif()
+  # Optimize binary size by dropping unneeded symbols at linking stage
+  if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdata-sections -ffunction-sections")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gc-sections")
+  endif()
 endif(UNIX)
+
+# Add security (hardening flags)
+IF (UNIX OR APPLE OR ANDROID)
+    SET(SEC_COMP_FLAGS "-D_FORTIFY_SOURCE=2 -fstack-protector-all -Wcast-align -fPIE")
+    IF (NOT ANDROID AND NOT "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" AND NOT APPLE)
+        SET(SEC_COMP_FLAGS "${SEC_COMP_FLAGS} -Wa,--noexecstack")
+    ENDIF ()
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${SEC_COMP_FLAGS}")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SEC_COMP_FLAGS}")
+    SET(SEC_LINK_FLAGS "")
+    IF (NOT APPLE)
+        SET(SEC_LINK_FLAGS "${SEC_LINK_FLAGS} -Wl,-z,nodump -Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now")
+    ENDIF ()
+    IF (NOT ANDROID AND NOT APPLE)
+        SET(SEC_LINK_FLAGS "${SEC_LINK_FLAGS} -pie")
+    ENDIF ()
+    SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${SEC_LINK_FLAGS}")
+    SET(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${SEC_LINK_FLAGS}")
+ENDIF ()
+
+# Clang Format support
+IF (UNIX OR APPLE)
+    SET(FORMAT_CODE OFF CACHE BOOL "Enable Clang Format")
+    IF (FORMAT_CODE MATCHES ON)
+        FILE(GLOB_RECURSE ALL_SOURCE_FILES *.c *.cpp *.h)
+
+        FOREACH(SOURCE_FILE ${ALL_SOURCE_FILES})
+            STRING(FIND ${SOURCE_FILE} ${CMAKE_SOURCE_DIR} DIR_FOUND)
+            IF (NOT ${DIR_FOUND} EQUAL 0)
+                LIST(REMOVE_ITEM ALL_SOURCE_FILES ${SOURCE_FILE})
+            ENDIF ()
+        ENDFOREACH ()
+
+        FIND_PROGRAM(CLANGFORMAT_EXE NAMES clang-format-5.0)
+        IF (CLANGFORMAT_EXE)
+            ADD_CUSTOM_TARGET(clang-format COMMAND ${CLANGFORMAT_EXE} -style=file -i ${ALL_SOURCE_FILES})
+        ENDIF ()
+    ENDIF ()
+ENDIF ()
 
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/config-kstars.h.cmake
@@ -270,6 +309,15 @@ endif(NOT BUILD_KSTARS_LITE)
 install(FILES org.kde.kstars.appdata.xml DESTINATION ${KDE_INSTALL_METAINFODIR})
 
 feature_summary(WHAT ALL FATAL_ON_MISSING_REQUIRED_PACKAGES)
+
+#This generates the helper file for astrometry index file downloads.
+add_executable(kauth_kstars_helper kstars/auxiliary/downloadhelper.cpp  ${helper_mocs})
+target_link_libraries(kauth_kstars_helper Qt5::Core)
+target_link_libraries(kauth_kstars_helper Qt5::Widgets)
+target_link_libraries(kauth_kstars_helper KF5::Auth)
+install(TARGETS kauth_kstars_helper DESTINATION ${KAUTH_HELPER_INSTALL_DIR})
+kauth_install_helper_files(kauth_kstars_helper org.kde.kf5auth.kstars root)
+kauth_install_actions(org.kde.kf5auth.kstars org.kde.kf5auth.kstars.actions)
 
 # Final package generation
 if (ANDROID)
