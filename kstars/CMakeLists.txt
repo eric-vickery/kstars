@@ -26,6 +26,7 @@ if(MSVC)
 endif()
 
 include_directories(
+    ${kstars_SOURCE_DIR}/kstars
     ${kstars_SOURCE_DIR}/kstars/skyobjects
     ${kstars_SOURCE_DIR}/kstars/skycomponents
     ${kstars_SOURCE_DIR}/kstars/auxiliary
@@ -52,8 +53,10 @@ if(NOT BUILD_KSTARS_LITE)
             fitsviewer/fitsviewer.cpp
             fitsviewer/fitstab.cpp
             fitsviewer/fitsdebayer.cpp
-            fitsviewer/bayer.c
             fitsviewer/opsfits.cpp
+            )
+        set (fits_bayer_SRCS
+            fitsviewer/bayer.c
             )
         set (fitsui_SRCS
             fitsviewer/fitsheaderdialog.ui
@@ -65,6 +68,10 @@ if(NOT BUILD_KSTARS_LITE)
             fitsviewer/opsfits.ui
             )
         include_directories(${CFITSIO_INCLUDE_DIR})
+
+        IF ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+            SET_SOURCE_FILES_PROPERTIES(fitsviewer/bayer.c PROPERTIES COMPILE_FLAGS "-Wno-cast-align")
+        ENDIF ()
     endif(CFITSIO_FOUND)
 endif(NOT BUILD_KSTARS_LITE)
 
@@ -72,6 +79,8 @@ if (INDI_FOUND)
     if(BUILD_KSTARS_LITE)
             set (fits_SRCS
                 fitsviewer/fitsdata.cpp
+                )
+            set (fits_bayer_SRCS
                 fitsviewer/bayer.c
                 )
                 include_directories(${CFITSIO_INCLUDE_DIR})
@@ -594,7 +603,7 @@ set(kstars_skyobjects_SRCS
     skyobjects/constellationsart.cpp
     skyobjects/deepskyobject.cpp
 #    skyobjects/jupitermoons.cpp
-#    skyobjects/planetmoons.cpp
+    skyobjects/planetmoons.cpp
     skyobjects/ksasteroid.cpp
     skyobjects/kscomet.cpp
     skyobjects/ksmoon.cpp
@@ -860,6 +869,12 @@ set(kstars_SRCS
 )
 
 kconfig_add_kcfg_files(kstars_SRCS ${kstars_KCFG_SRCS})
+
+IF (UNITY_BUILD)
+    ENABLE_UNITY_BUILD(kstars kstars_SRCS 10 cpp)
+ENDIF ()
+
+set(kstars_SRCS ${kstars_SRCS} ; ${fits_bayer_SRCS})
 
 if(NOT BUILD_KSTARS_LITE)
     qt5_add_dbus_adaptor(kstars_SRCS org.kde.kstars.xml kstars.h KStars)

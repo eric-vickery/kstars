@@ -15,12 +15,10 @@
  *                                                                         *
  ***************************************************************************/
 
-#ifndef DMS_H_
-#define DMS_H_
+#pragma once
 
 #include "../nan.h"
 
-#include <QDebug>
 #include <QString>
 
 #include <cmath>
@@ -125,7 +123,13 @@ class dms
 
     /** @return integer degrees portion of the angle
          */
-    inline int degree() const { return int(D); }
+    inline int degree() const
+    {
+        if (std::isnan(D))
+            return 0;
+
+        return int(D);
+    }
 
     /** @return integer arcminutes portion of the angle.
          * @note an arcminute is 1/60 degree.
@@ -475,5 +479,3 @@ inline bool operator==(const dms &a1, const dms &a2)
 {
     return a1.Degrees() == a2.Degrees();
 }
-
-#endif
