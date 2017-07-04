@@ -326,6 +326,14 @@ IF (UNIX OR APPLE)
         # ld.gold is 2x faster than normal ld
         IF (NOT APPLE AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES arm)
             SET(LINKER_FLAGS "${LINKER_FLAGS} -fuse-ld=gold")
+            # We have Gsl library what is a special case for linking:
+            # The gsl library must be linked with cblas. There are two alternatives for this: libcblas or libgslcblas.
+            # For example, CMake gets the GSL_LIBRARIES linking flags from the pkgconfig (gsl.pc) file on Ubuntu.
+            # This file defines -lgsl -lglscblas for linking flags and if KStars is compiled with Clang, the linker
+            # finds out magically that KStars must be linked against glscblas library, but gslcblas is omitted in linking
+            # stage if KStars is built with gcc. The linker must be instructed explicitly to link against all libraries
+            # passed on command line by -Wl,--no-as-needed.
+            SET(LINKER_FLAGS "${LINKER_FLAGS} -Wl,--no-as-needed")
             # Use Identical Code Folding
             SET(COMP_FLAGS "${COMP_FLAGS} -ffunction-sections")
             SET(LINKER_FLAGS "${LINKER_FLAGS} -Wl,--icf=safe")
@@ -377,14 +385,16 @@ install(FILES org.kde.kstars.appdata.xml DESTINATION ${KDE_INSTALL_METAINFODIR})
 
 feature_summary(WHAT ALL FATAL_ON_MISSING_REQUIRED_PACKAGES)
 
-#This generates the helper file for astrometry index file downloads.
-add_executable(kauth_kstars_helper kstars/auxiliary/downloadhelper.cpp  ${helper_mocs})
-target_link_libraries(kauth_kstars_helper Qt5::Core)
-target_link_libraries(kauth_kstars_helper Qt5::Widgets)
-target_link_libraries(kauth_kstars_helper KF5::Auth)
-install(TARGETS kauth_kstars_helper DESTINATION ${KAUTH_HELPER_INSTALL_DIR})
-kauth_install_helper_files(kauth_kstars_helper org.kde.kf5auth.kstars root)
-kauth_install_actions(org.kde.kf5auth.kstars org.kde.kf5auth.kstars.actions)
+IF (NOT BUILD_KSTARS_LITE)
+    # This helper file is generated to download astrometry.net index files.
+    add_executable(kauth_kstars_helper kstars/auxiliary/downloadhelper.cpp  ${helper_mocs})
+    target_link_libraries(kauth_kstars_helper Qt5::Core)
+    target_link_libraries(kauth_kstars_helper Qt5::Widgets)
+    target_link_libraries(kauth_kstars_helper KF5::Auth)
+    install(TARGETS kauth_kstars_helper DESTINATION ${KAUTH_HELPER_INSTALL_DIR})
+    kauth_install_helper_files(kauth_kstars_helper org.kde.kf5auth.kstars root)
+    kauth_install_actions(org.kde.kf5auth.kstars org.kde.kf5auth.kstars.actions)
+ENDIF ()
 
 # Final package generation
 if (ANDROID)
