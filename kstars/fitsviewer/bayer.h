@@ -25,8 +25,6 @@
 
 #include <stdint.h>
 
-#define restrict __restrict
-
 /**
  * Error codes returned by most libdc1394 functions.
  *
