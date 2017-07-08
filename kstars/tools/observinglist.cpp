@@ -92,8 +92,7 @@ ObservingListUI::ObservingListUI(QWidget *p) : QFrame(p)
 // ObservingList
 // ---------------------------------
 ObservingList::ObservingList()
-    : QDialog((QWidget *)KStars::Instance()), LogObject(0), m_CurrentObject(0), isModified(false), bIsLarge(true),
-      m_dl(0)
+    : QDialog((QWidget *)KStars::Instance()), LogObject(0), m_CurrentObject(0), isModified(false), m_dl(0)
 {
 #ifdef Q_OS_OSX
     setWindowFlags(Qt::Tool | Qt::WindowStaysOnTopHint);
@@ -102,13 +101,6 @@ ObservingList::ObservingList()
     QVBoxLayout *mainLayout = new QVBoxLayout;
     mainLayout->addWidget(ui);
     setWindowTitle(i18n("Observation Planner"));
-
-    // Close button seems redundant since one can close the window -- occupies space
-    /*
-    QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Close);
-    mainLayout->addWidget(buttonBox);
-    connect(buttonBox, SIGNAL(rejected()), this, SLOT(reject()));
-    */
 
     setLayout(mainLayout);
 
@@ -175,7 +167,6 @@ ObservingList::ObservingList()
     connect(ui->SaveButton, SIGNAL(clicked()), this, SLOT(slotSaveSession()));
     connect(ui->SaveAsButton, SIGNAL(clicked()), this, SLOT(slotSaveSessionAs()));
     connect(ui->WizardButton, SIGNAL(clicked()), this, SLOT(slotWizard()));
-    connect(ui->MiniButton, SIGNAL(clicked()), this, SLOT(slotToggleSize()));
     connect(ui->SetLocation, SIGNAL(clicked()), this, SLOT(slotLocation()));
     connect(ui->Update, SIGNAL(clicked()), this, SLOT(slotUpdate()));
     connect(ui->DeleteImage, SIGNAL(clicked()), this, SLOT(slotDeleteCurrentImage()));
@@ -196,10 +187,8 @@ ObservingList::ObservingList()
     ui->SaveAsButton->setAttribute(Qt::WA_LayoutUsesWidgetRect);
     ui->WizardButton->setIcon(QIcon::fromTheme("tools-wizard", QIcon(":/icons/breeze/default/tools-wizard.svg")));
     ui->WizardButton->setAttribute(Qt::WA_LayoutUsesWidgetRect);
-    ui->MiniButton->setIcon(QIcon::fromTheme("view-restore", QIcon(":/icons/breeze/default/view-restore.svg")));
     noSelection = true;
-    showScope   = false;
-    ui->NotesLabel->setEnabled(false);
+    showScope   = false;    
     ui->NotesEdit->setEnabled(false);
     ui->SetTime->setEnabled(false);
     ui->TimeEdit->setEnabled(false);
@@ -245,6 +234,12 @@ ObservingList::ObservingList()
         //        qDebug() << "Updating altitude for " << p.ra().toHMSString() << " " << p.dec().toDMSString() << " alt = " << p.alt().toDMSString() << " info to " << itemText;
         return altItem;
     };
+
+// Needed to fix weird bug on Windows that started with Qt 5.9 that makes the title bar
+// not visible and therefore dialog not movable.
+#ifdef Q_OS_WIN
+    move(100,100);
+#endif
 }
 
 ObservingList::~ObservingList()
@@ -267,13 +262,7 @@ void ObservingList::showEvent(QShowEvent *)
 
         slotLoadWishList(); //Load the wishlist from disk if present
         m_CurrentObject = 0;
-        setSaveImagesButton();
-        //Hide the MiniButton until I can figure out how to resize the Dialog!
-        //    ui->MiniButton->hide();
-
-        // Set up for the large-size view
-        bIsLarge = false;
-        slotToggleSize();
+        setSaveImagesButton();    
 
         slotUpdateAltitudes();
         m_altitudeUpdater = new QTimer(this);
@@ -584,10 +573,8 @@ void ObservingList::slotNewSelection()
                 //First, save the last object's user log to disk, if necessary
                 saveCurrentUserLog(); //uses LogObject, which is still the previous obj.
                 //set LogObject to the new selected object
-                LogObject = currentObject();
-                ui->NotesLabel->setEnabled(true);
-                ui->NotesEdit->setEnabled(true);
-                ui->NotesLabel->setText(i18n("observing notes for %1:", getObjectName(LogObject)));
+                LogObject = currentObject();                
+                ui->NotesEdit->setEnabled(true);                
                 if (LogObject->userLog().isEmpty())
                 {
                     ui->NotesEdit->setPlainText(
@@ -607,9 +594,7 @@ void ObservingList::slotNewSelection()
             else //selected object is named "star"
             {
                 //clear the log text box
-                saveCurrentUserLog();
-                ui->NotesLabel->setText(i18n("observing notes (disabled for unnamed star)"));
-                ui->NotesLabel->setEnabled(false);
+                saveCurrentUserLog();                
                 ui->NotesEdit->clear();
                 ui->NotesEdit->setEnabled(false);
                 ui->SearchImage->setEnabled(false);
@@ -674,9 +659,7 @@ void ObservingList::slotNewSelection()
         if (selectedItems.size() == 0) //Nothing selected
         {
             //Disable buttons
-            noSelection = true;
-            ui->NotesLabel->setText(i18n("Select an object to record notes on it here:"));
-            ui->NotesLabel->setEnabled(false);
+            noSelection = true;            
             ui->NotesEdit->setEnabled(false);
             m_CurrentObject = 0;
             ui->TimeEdit->setEnabled(false);
@@ -689,9 +672,7 @@ void ObservingList::slotNewSelection()
             ui->avt->removeAllPlotObjects();
         }
         else //more than one object selected.
-        {
-            ui->NotesLabel->setText(i18n("Select a single object to record notes on it here:"));
-            ui->NotesLabel->setEnabled(false);
+        {            
             ui->NotesEdit->setEnabled(false);
             ui->TimeEdit->setEnabled(false);
             ui->SetTime->setEnabled(false);
@@ -866,7 +847,6 @@ void ObservingList::saveCurrentUserLog()
     {
         LogObject->saveUserLog(ui->NotesEdit->toPlainText());
         ui->NotesEdit->clear();
-        ui->NotesLabel->setText(i18n("Observing notes for object:"));
         LogObject = nullptr;
     }
 }
@@ -1195,97 +1175,10 @@ double ObservingList::findAltitude(SkyPoint *p, double hour)
     return sp.alt().Degrees();
 }
 
-void ObservingList::slotToggleSize()
-{
-    if (isLarge())
-    {
-        ui->MiniButton->setIcon(
-            QIcon::fromTheme("view-fullscreen", QIcon(":/icons/breeze/default/view-fullscreen.svg")));
-        //Abbreviate text on each button
-        ui->FindButton->setText("");
-        ui->FindButton->setIcon(QIcon::fromTheme("edit-find", QIcon(":/icons/breeze/default/edit-find.svg")));
-        ui->WUTButton->setText(i18nc("Abbreviation of What's Up Tonight", "WUT"));
-        ui->saveImages->setText("");
-        ui->DeleteAllImages->setText("");
-        ui->saveImages->setIcon(QIcon::fromTheme("download", QIcon(":/icons/breeze/default/download.svg")));
-        ui->DeleteAllImages->setIcon(QIcon::fromTheme("edit-delete", QIcon(":/icons/breeze/default/edit-delete.svg")));
-        ui->refLabel->setText(i18nc("Abbreviation for Reference Images:", "RefImg:"));
-        ui->addLabel->setText(i18nc("Add objects to a list", "Add:"));
-        //Hide columns 1-5
-        ui->WishListView->hideColumn(1);
-        ui->WishListView->hideColumn(2);
-        ui->WishListView->hideColumn(3);
-        ui->WishListView->hideColumn(4);
-        ui->WishListView->hideColumn(5);
-        //Hide the headers
-        ui->WishListView->horizontalHeader()->hide();
-        ui->WishListView->verticalHeader()->hide();
-        //Hide Observing notes
-        ui->NotesLabel->hide();
-        ui->NotesEdit->hide();
-        //ui->kseparator->hide();
-        ui->avt->hide();
-        ui->dssMetadataLabel->hide();
-        ui->setMinimumSize(320, 600);
-        //Set the width of the Table to be the width of 5 toolbar buttons,
-        //or the width of column 1, whichever is larger
-        /*
-        int w = 5*ui->MiniButton->width();
-        if ( ui->WishListView->columnWidth(0) > w ) {
-            w = ui->WishListView->columnWidth(0);
-        } else {
-            ui->WishListView->setColumnWidth(0, w);
-        }
-        int left, right, top, bottom;
-        ui->layout()->getContentsMargins( &left, &top, &right, &bottom );
-        resize( w + left + right, height() );
-        */
-        bIsLarge = false;
-        ui->resize(400, ui->height());
-        adjustSize();
-        this->resize(400, this->height());
-        update();
-    }
-    else
-    {
-        ui->MiniButton->setIcon(QIcon::fromTheme("view-restore", QIcon(":/icons/breeze/default/view-restore.svg")));
-        //Show columns 1-5
-        ui->WishListView->showColumn(1);
-        ui->WishListView->showColumn(2);
-        ui->WishListView->showColumn(3);
-        ui->WishListView->showColumn(4);
-        ui->WishListView->showColumn(5);
-        //Show the horizontal header
-        ui->WishListView->horizontalHeader()->show();
-        //Expand text on each button
-        ui->FindButton->setText(i18n("Find &Object"));
-        ui->saveImages->setText(i18n("Download all Images"));
-        ui->DeleteAllImages->setText(i18n("Delete all Images"));
-        ui->FindButton->setIcon(QIcon());
-        ui->saveImages->setIcon(QIcon());
-        ui->DeleteAllImages->setIcon(QIcon());
-        ui->WUTButton->setText(i18n("What's up Tonight tool"));
-        ui->refLabel->setText(i18nc("Abbreviation for Reference Images:", "Reference Images:"));
-        ui->addLabel->setText(i18nc("Add objects to a list", "Adding Objects:"));
-        //Show Observing notes
-        ui->NotesLabel->show();
-        ui->NotesEdit->show();
-        //ui->kseparator->show();
-        ui->setMinimumSize(837, 650);
-        ui->avt->show();
-        ui->dssMetadataLabel->show();
-        adjustSize();
-        update();
-        bIsLarge = true;
-    }
-}
-
 void ObservingList::slotChangeTab(int index)
 {
     noSelection = true;
     saveCurrentUserLog();
-    ui->NotesLabel->setText(i18n("Select an object to record notes on it here:"));
-    ui->NotesLabel->setEnabled(false);
     ui->NotesEdit->setEnabled(false);
     ui->TimeEdit->setEnabled(false);
     ui->SetTime->setEnabled(false);
