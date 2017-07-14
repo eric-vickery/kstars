@@ -2,7 +2,7 @@ PROJECT(kstars CXX C)
 
 set (KStars_VERSION_MAJOR 2)
 set (KStars_VERSION_MINOR 7)
-set (KStars_VERSION_REVISION 9)
+set (KStars_VERSION_REVISION 10)
 set (CMAKE_CXX_STANDARD 11)
 #Build KStars Lite with -DKSTARS_LITE=ON
 option(BUILD_KSTARS_LITE "Build KStars Lite" OFF)
@@ -430,7 +430,7 @@ if (ANDROID)
         )
     if (ANDROID_KEYSTORE AND ANDROID_KEYSTORE_ALIAS)
         add_custom_target(sign-apk-kstars
-            COMMAND jarsigner -keystore ${ANDROID_KEYSTORE} ${CMAKE_BINARY_DIR}/android/kstars_build_apk/bin/QtApp-release-unsigned.apk ${ANDROID_KEYSTORE_ALIAS}
+            COMMAND jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 -keystore ${ANDROID_KEYSTORE} ${CMAKE_BINARY_DIR}/android/kstars_build_apk/bin/QtApp-release-unsigned.apk ${ANDROID_KEYSTORE_ALIAS}
             COMMAND rm -rf ${CMAKE_BINARY_DIR}/android/kstars_build_apk/bin/kstars-signed.apk
             COMMAND zipalign -v 4 ${CMAKE_BINARY_DIR}/android/kstars_build_apk/bin/QtApp-release-unsigned.apk ${CMAKE_BINARY_DIR}/android/kstars_build_apk/bin/kstars-signed.apk
             )

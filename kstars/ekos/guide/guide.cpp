@@ -102,7 +102,7 @@ Guide::Guide() : QWidget()
 
     // Progress Indicator
     pi = new QProgressIndicator(this);
-    controlLayout->addWidget(pi, 0, 1, 1, 1);
+    controlLayout->addWidget(pi, 1, 2, 1, 1);
 
     showFITSViewerB->setIcon(
         QIcon::fromTheme("kstars_fitsviewer", QIcon(":/icons/breeze/default/kstars_fitsviewer.svg")));
@@ -172,7 +172,21 @@ Guide::Guide() : QWidget()
     connect(spinBox_MinPulseDEC, SIGNAL(editingFinished()), this, SLOT(onInputParamChanged()));
 
     // Capture
-    connect(captureB, SIGNAL(clicked()), this, SLOT(capture()));
+    connect(captureB, &QPushButton::clicked, this, [this]()
+    {
+        state = GUIDE_CAPTURE;
+        emit newStatus(state);
+
+        capture();
+    });
+
+    connect(loopB, &QPushButton::clicked, this, [this]()
+    {
+        state = GUIDE_LOOPING;
+        emit newStatus(state);
+
+        capture();
+    });
 
     // Stop
     connect(stopB, SIGNAL(clicked()), this, SLOT(abort()));
@@ -255,7 +269,6 @@ Guide::Guide() : QWidget()
     opsGuide = new OpsGuide();
     dialog->addPage(opsGuide, i18n("Guide Settings"));
     connect(guideOptionsB, SIGNAL(clicked()), dialog, SLOT(show()));
-    connect(opsGuide, SIGNAL(guiderInfoUpdated(int)), this, SLOT(setGuiderType(int)));
 
     internalGuider->setGuideView(guideView);
 
@@ -700,6 +713,7 @@ void Guide::setBusy(bool enable)
         calibrateB->setEnabled(false);
         guideB->setEnabled(false);
         captureB->setEnabled(false);
+        loopB->setEnabled(false);
 
         darkFrameCheck->setEnabled(false);
         subFrameCheck->setEnabled(false);
@@ -715,6 +729,7 @@ void Guide::setBusy(bool enable)
         if (guiderType == GUIDE_INTERNAL)
         {
             captureB->setEnabled(true);
+            loopB->setEnabled(true);
             darkFrameCheck->setEnabled(true);
             subFrameCheck->setEnabled(true);
         }
@@ -827,6 +842,16 @@ void Guide::setCaptureComplete()
         case GUIDE_CALIBRATION_ERROR:
         case GUIDE_DITHERING_ERROR:
             setBusy(false);
+            break;
+
+        case GUIDE_CAPTURE:
+            state = GUIDE_IDLE;
+            emit newStatus(state);
+            setBusy(false);
+            break;
+
+        case GUIDE_LOOPING:
+            capture();
             break;
 
         case GUIDE_CALIBRATING:
@@ -1103,6 +1128,7 @@ void Guide::setMountStatus(ISD::Telescope::TelescopeStatus newState)
         case ISD::Telescope::MOUNT_PARKING:
         case ISD::Telescope::MOUNT_MOVING:
             captureB->setEnabled(false);
+            loopB->setEnabled(false);
             calibrateB->setEnabled(false);
             if (newState == ISD::Telescope::MOUNT_PARKING)
                 abort();
@@ -1112,6 +1138,7 @@ void Guide::setMountStatus(ISD::Telescope::TelescopeStatus newState)
             if (pi->isAnimated() == false)
             {
                 captureB->setEnabled(true);
+                loopB->setEnabled(true);
                 calibrateB->setEnabled(true);
             }
     }
@@ -1219,6 +1246,7 @@ void Guide::setStatus(Ekos::GuideState newState)
             externalConnectB->setEnabled(false);
             externalDisconnectB->setEnabled(true);
             captureB->setEnabled(false);
+            loopB->setEnabled(false);
             if (guiderType == GUIDE_LINGUIDER)
                 calibrateB->setEnabled(true);
             guideB->setEnabled(true);
@@ -1232,6 +1260,7 @@ void Guide::setStatus(Ekos::GuideState newState)
             calibrateB->setEnabled(false);
             guideB->setEnabled(false);
             captureB->setEnabled(false);
+            loopB->setEnabled(false);
             setBLOBEnabled(true);
             break;
 
@@ -1466,6 +1495,7 @@ bool Guide::setGuiderType(int type)
             calibrateB->setEnabled(true);
             guideB->setEnabled(false);
             captureB->setEnabled(true);
+            loopB->setEnabled(true);
             darkFrameCheck->setEnabled(true);
             subFrameCheck->setEnabled(true);
 
@@ -1495,6 +1525,7 @@ bool Guide::setGuiderType(int type)
 
             calibrateB->setEnabled(false);
             captureB->setEnabled(false);
+            loopB->setEnabled(false);
             darkFrameCheck->setEnabled(false);
             subFrameCheck->setEnabled(false);
             guideB->setEnabled(true);
@@ -1520,6 +1551,7 @@ bool Guide::setGuiderType(int type)
 
             calibrateB->setEnabled(true);
             captureB->setEnabled(false);
+            loopB->setEnabled(false);
             darkFrameCheck->setEnabled(false);
             subFrameCheck->setEnabled(false);
             guideB->setEnabled(true);
@@ -2301,25 +2333,24 @@ void Guide::showFITSViewer()
 void Guide::setBLOBEnabled(bool enable)
 {
     // Nothing to do if guider is international or remote images are enabled
-    if (guiderType == GUIDE_INTERNAL || Options::guideRemoteImagesEnabled() || currentCCD == nullptr)
+    if (guiderType == GUIDE_INTERNAL || Options::guideRemoteImagesEnabled())
         return;
 
     // If guider is external and remote images option is disabled AND BLOB is enabled, then we disabled it
 
-    if (enable == false && currentCCD->getDriverInfo()->getClientManager()->getBLOBMode(currentCCD->getDeviceName(), "CCD1") != B_NEVER)
+    foreach(ISD::CCD *oneCCD, CCDs)
     {
-        appendLogText(i18n("Disabling remote image reception from %1", currentCCD->getDeviceName()));
-
-        currentCCD->getDriverInfo()->getClientManager()->setBLOBMode(B_NEVER, currentCCD->getDeviceName(), "CCD1");
-        currentCCD->getDriverInfo()->getClientManager()->setBLOBMode(B_NEVER, currentCCD->getDeviceName(), "CCD2");
-    }
-    // Re-enable BLOB reception if it was disabled before when using external guiders
-    else if (enable && currentCCD->getDriverInfo()->getClientManager()->getBLOBMode(currentCCD->getDeviceName(), "CCD1") == B_NEVER)
-    {
-        appendLogText(i18n("Enabling remote image reception from %1", currentCCD->getDeviceName()));
-
-        currentCCD->getDriverInfo()->getClientManager()->setBLOBMode(B_ALSO, currentCCD->getDeviceName(), "CCD1");
-        currentCCD->getDriverInfo()->getClientManager()->setBLOBMode(B_ALSO, currentCCD->getDeviceName(), "CCD2");
+        if (enable == false && oneCCD->isBLOBEnabled())
+        {
+            appendLogText(i18n("Disabling remote image reception from %1", oneCCD->getDeviceName()));
+            oneCCD->setBLOBEnabled(enable);
+        }
+        // Re-enable BLOB reception if it was disabled before when using external guiders
+        else if (enable && oneCCD->isBLOBEnabled() == false)
+        {
+            appendLogText(i18n("Enabling remote image reception from %1", oneCCD->getDeviceName()));
+            oneCCD->setBLOBEnabled(enable);
+        }
     }
 }
 }

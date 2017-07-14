@@ -162,6 +162,7 @@ Mount::Mount()
 
 Mount::~Mount()
 {
+    delete(m_BaseView);
 }
 
 void Mount::setTelescope(ISD::GDInterface *newTelescope)
@@ -179,6 +180,7 @@ void Mount::setTelescope(ISD::GDInterface *newTelescope)
     connect(currentTelescope, SIGNAL(switchUpdated(ISwitchVectorProperty *)), this,
             SLOT(updateSwitch(ISwitchVectorProperty *)), Qt::UniqueConnection);
     connect(currentTelescope, SIGNAL(newTarget(QString)), this, SIGNAL(newTarget(QString)), Qt::UniqueConnection);
+    connect(currentTelescope, SIGNAL(Disconnected()), m_BaseView, SLOT(hide()), Qt::UniqueConnection);
 
     //Disable this for now since ALL INDI drivers now log their messages to verbose output
     //connect(currentTelescope, SIGNAL(messageUpdated(int)), this, SLOT(updateLog(int)), Qt::UniqueConnection);
@@ -255,8 +257,8 @@ void Mount::syncTelescopeInfo()
         connect(unparkB, SIGNAL(clicked()), currentTelescope, SLOT(UnPark()), Qt::UniqueConnection);
 
         // QtQuick
-        m_Park->setEnabled(true);
-        m_Unpark->setEnabled(true);
+        m_Park->setEnabled(!currentTelescope->isParked());
+        m_Unpark->setEnabled(currentTelescope->isParked());
     }
     else
     {
