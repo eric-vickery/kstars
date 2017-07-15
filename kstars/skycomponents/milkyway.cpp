@@ -17,28 +17,18 @@
 
 #include "milkyway.h"
 
-#include <QList>
-#include <QPointF>
-#include <QPolygonF>
-#include <QtConcurrent>
-
-#include <KLocalizedString>
-
+#include "ksfilereader.h"
 #include "kstarsdata.h"
 #ifdef KSTARS_LITE
 #include "skymaplite.h"
 #else
 #include "skymap.h"
 #endif
-#include "skyobjects/skypoint.h"
-#include "dms.h"
 #include "Options.h"
-#include "ksfilereader.h"
+#include "skypainter.h"
 #include "skycomponents/skiplist.h"
 
-#include "skymesh.h"
-
-#include "skypainter.h"
+#include <QtConcurrent>
 
 MilkyWay::MilkyWay(SkyComposite *parent) : LineListIndex(parent, i18n("Milky Way"))
 {
@@ -100,24 +90,26 @@ void MilkyWay::draw(SkyPainter *skyp)
 void MilkyWay::loadContours(QString fname, QString greeting)
 {
     KSFileReader fileReader;
+    std::shared_ptr<LineList> skipList;
+    int iSkip = 0;
+
     if (!fileReader.open(fname))
         return;
-    fileReader.setProgress(greeting, 2136, 5);
 
-    SkipList *skipList = 0;
-    int iSkip          = 0;
+    fileReader.setProgress(greeting, 2136, 5);
     while (fileReader.hasMoreLines())
     {
         QString line = fileReader.readLine();
-        fileReader.showProgress();
-
         QChar firstChar = line.at(0);
+
+        fileReader.showProgress();
         if (firstChar == '#')
             continue;
 
-        bool okRA, okDec;
+        bool okRA = false, okDec = false;
         double ra  = line.mid(2, 8).toDouble(&okRA);
         double dec = line.mid(11, 8).toDouble(&okDec);
+
         if (!okRA || !okDec)
         {
             qDebug() << QString("%1: conversion error on line: %2\n").arg(fname).arg(fileReader.lineNumber());
@@ -126,20 +118,23 @@ void MilkyWay::loadContours(QString fname, QString greeting)
 
         if (firstChar == 'M')
         {
-            if (skipList)
+            if (skipList.get())
                 appendBoth(skipList);
-            skipList = 0;
+            skipList.reset();
             iSkip    = 0;
         }
 
-        if (!skipList)
-            skipList = new SkipList();
+        if (!skipList.get())
+            skipList.reset(new SkipList());
 
-        skipList->append(new SkyPoint(ra, dec));
+        std::shared_ptr<SkyPoint> point(new SkyPoint(ra, dec));
+
+        skipList->append(std::move(point));
         if (firstChar == 'S')
-            skipList->setSkip(iSkip);
+            static_cast<SkipList*>(skipList.get())->setSkip(iSkip);
+
         iSkip++;
     }
-    if (skipList)
+    if (skipList.get())
         appendBoth(skipList);
 }

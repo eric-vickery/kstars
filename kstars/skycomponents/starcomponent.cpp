@@ -19,16 +19,17 @@
 
 #include "binfilehelper.h"
 #include "deepstarcomponent.h"
+#include "highpmstarlist.h"
 #include "kstarsdata.h"
 #include "kstarssplash.h"
 #include "Options.h"
-#include "skylabel.h"
 #include "skylabeler.h"
 #include "skymap.h"
 #include "skymesh.h"
 #ifndef KSTARS_LITE
 #include "skyqpainter.h"
 #endif
+#include "htmesh/MeshIterator.h"
 #include "projections/projector.h"
 
 #include <qplatformdefs.h>
@@ -48,12 +49,12 @@
 StarComponent *StarComponent::pinstance = 0;
 
 StarComponent::StarComponent(SkyComposite *parent)
-    : ListComponent(parent), m_reindexNum(J2000), m_FaintMagnitude(-5.0), starsLoaded(false), focusStar(nullptr)
+    : ListComponent(parent), m_reindexNum(J2000), m_FaintMagnitude(-5.0), starsLoaded(false)
 {
     m_skyMesh          = SkyMesh::Instance();
     m_StarBlockFactory = StarBlockFactory::Instance();
 
-    m_starIndex = new StarIndex();
+    m_starIndex.reset(new StarIndex());
     for (int i = 0; i < m_skyMesh->size(); i++)
         m_starIndex->append(new StarList());
     m_highPMStars.append(new HighPMStarList(840.0));
@@ -83,7 +84,14 @@ StarComponent::StarComponent(SkyComposite *parent)
 
 StarComponent::~StarComponent()
 {
-    qDeleteAll(m_HDHash.values());
+    qDeleteAll(*m_starIndex);
+    m_starIndex->clear();
+    qDeleteAll(m_DeepStarComponents);
+    m_DeepStarComponents.clear();
+    qDeleteAll(m_highPMStars);
+    m_highPMStars.clear();
+    for (int i = 0; i <= MAX_LINENUMBER_MAG; i++)
+        delete m_labelList[i];
 }
 
 StarComponent *StarComponent::Create(SkyComposite *parent)
@@ -149,7 +157,7 @@ bool StarComponent::reindex(KSNumbers *num)
     bool highPM = true;
     // otherwise we just re-index fast movers as needed
     for (int j = 0; j < m_highPMStars.size(); j++)
-        highPM &= !(m_highPMStars.at(j)->reindex(num, m_starIndex));
+        highPM &= !(m_highPMStars.at(j)->reindex(num, m_starIndex.get()));
     return !(highPM);
 }
 
@@ -602,8 +610,9 @@ void StarComponent::objectsInArea(QList<SkyObject *> &list, const SkyRegion &reg
 StarObject *StarComponent::findByHDIndex(int HDnum)
 {
     KStarsData *data = KStarsData::Instance();
-    StarObject *o;
+    StarObject *o = nullptr;
     BinFileHelper hdidxReader;
+
     // First check the hash to see if we have a corresponding StarObject already
     if ((o = m_HDHash.value(HDnum, nullptr)))
         return o;

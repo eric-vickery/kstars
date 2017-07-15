@@ -17,8 +17,8 @@
 
 #include "pointlistcomponent.h"
 
-#include "skyobjects/skypoint.h"
 #include "kstarsdata.h"
+#include "skyobjects/skypoint.h"
 
 PointListComponent::PointListComponent(SkyComposite *parent) : SkyComponent(parent)
 {
@@ -26,18 +26,20 @@ PointListComponent::PointListComponent(SkyComposite *parent) : SkyComponent(pare
 
 PointListComponent::~PointListComponent()
 {
-    qDeleteAll(pointList());
 }
 
 void PointListComponent::update(KSNumbers *num)
 {
     if (!selected())
         return;
+
     KStarsData *data = KStarsData::Instance();
-    foreach (SkyPoint *p, pointList())
+
+    foreach (std::shared_ptr<SkyPoint> p, pointList())
     {
         if (num)
             p->updateCoords(num);
+
         p->EquatorialToHorizontal(data->lst(), data->geo()->lat());
     }
 }

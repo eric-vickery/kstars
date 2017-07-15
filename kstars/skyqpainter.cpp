@@ -22,30 +22,21 @@
 #include "kstarsdata.h"
 #include "Options.h"
 #include "skymap.h"
-
-#include "skycomponents/linelist.h"
-#include "skycomponents/skiplist.h"
-#include "skycomponents/linelistlabel.h"
-#include "skycomponents/skymapcomposite.h"
+#include "projections/projector.h"
 #include "skycomponents/flagcomponent.h"
+#include "skycomponents/linelist.h"
+#include "skycomponents/linelistlabel.h"
 #include "skycomponents/satellitescomponent.h"
+#include "skycomponents/skiplist.h"
+#include "skycomponents/skymapcomposite.h"
 #include "skycomponents/solarsystemcomposite.h"
-
+#include "skyobjects/constellationsart.h"
 #include "skyobjects/deepskyobject.h"
-#include "skyobjects/kscomet.h"
 #include "skyobjects/ksasteroid.h"
-#include "skyobjects/trailobject.h"
+#include "skyobjects/kscomet.h"
+#include "skyobjects/kssun.h"
 #include "skyobjects/satellite.h"
 #include "skyobjects/supernova.h"
-#include "skyobjects/constellationsart.h"
-#include "skyobjects/kssun.h"
-#include "projections/projector.h"
-#include "ksutils.h"
-
-#include <QMap>
-#include <QWidget>
-
-#include <functional>
 
 namespace
 {
@@ -93,12 +84,28 @@ const int nSPclasses = 7;
 // These pixmaps are never deallocated. Not really good...
 QPixmap *imageCache[nSPclasses][nStarSizes] = { { 0 } };
 
-QPixmap *visibleSatPixmap = 0, *invisibleSatPixmap = 0;
+std::unique_ptr<QPixmap> visibleSatPixmap, invisibleSatPixmap;
 }
 
 int SkyQPainter::starColorMode           = 0;
 QColor SkyQPainter::m_starColor          = QColor();
 QMap<char, QColor> SkyQPainter::ColorMap = QMap<char, QColor>();
+
+void SkyQPainter::releaseImageCache()
+{
+    foreach (char color, ColorMap.keys())
+    {
+        QPixmap **pmap = imageCache[harvardToIndex(color)];
+
+        for (int size = 1; size < nStarSizes; size++)
+        {
+            if (pmap[size])
+                delete pmap[size];
+
+            pmap[size] = nullptr;
+        }
+    }
+}
 
 SkyQPainter::SkyQPainter(QPaintDevice *pd) : SkyPainter(), QPainter()
 {
@@ -240,6 +247,7 @@ void SkyQPainter::initStarImages()
 
         // Cache array slice
         QPixmap **pmap = imageCache[harvardToIndex(color)];
+
         for (int size = 1; size < nStarSizes; size++)
         {
             if (!pmap[size])
@@ -249,8 +257,10 @@ void SkyQPainter::initStarImages()
     }
     starColorMode = Options::starColorMode();
 
-    visibleSatPixmap   = new QPixmap(":/icons/breeze/default/kstars_satellites_visible.svg");
-    invisibleSatPixmap = new QPixmap(":/icons/breeze/default/kstars_satellites_invisible.svg");
+    if (!visibleSatPixmap.get())
+        visibleSatPixmap.reset(new QPixmap(":/icons/breeze/default/kstars_satellites_visible.svg"));
+    if (!invisibleSatPixmap.get())
+        invisibleSatPixmap.reset(new QPixmap(":/icons/breeze/default/kstars_satellites_invisible.svg"));
 }
 
 void SkyQPainter::drawSkyLine(SkyPoint *a, SkyPoint *b)
@@ -285,14 +295,15 @@ void SkyQPainter::drawSkyPolyline(LineList *list, SkipList *skipList, LineListLa
     SkyList *points = list->points();
     bool isVisible, isVisibleLast;
 
-    QPointF oLast = m_proj->toScreen(points->first(), true, &isVisibleLast);
+    QPointF oLast = m_proj->toScreen(points->first().get(), true, &isVisibleLast);
     // & with the result of checkVisibility to clip away things below horizon
-    isVisibleLast &= m_proj->checkVisibility(points->first());
+    isVisibleLast &= m_proj->checkVisibility(points->first().get());
     QPointF oThis, oThis2;
 
     for (int j = 1; j < points->size(); j++)
     {
-        SkyPoint *pThis = points->at(j);
+        SkyPoint *pThis = points->at(j).get();
+
         oThis2 = oThis = m_proj->toScreen(pThis, true, &isVisible);
         // & with the result of checkVisibility to clip away things below horizon
         isVisible &= m_proj->checkVisibility(pThis);
@@ -340,7 +351,7 @@ void SkyQPainter::drawSkyPolygon(LineList *list, bool forceClip)
     {
         for (int i = 0; i < points->size(); ++i)
         {
-            polygon << m_proj->toScreen(points->at(i), false, &isVisibleLast);
+            polygon << m_proj->toScreen(points->at(i).get(), false, &isVisibleLast);
             isVisible |= isVisibleLast;
         }
 
@@ -351,14 +362,14 @@ void SkyQPainter::drawSkyPolygon(LineList *list, bool forceClip)
         return;
     }
 
-    SkyPoint *pLast = points->last();
+    SkyPoint *pLast = points->last().get();
     QPointF oLast   = m_proj->toScreen(pLast, true, &isVisibleLast);
     // & with the result of checkVisibility to clip away things below horizon
     isVisibleLast &= m_proj->checkVisibility(pLast);
 
     for (int i = 0; i < points->size(); ++i)
     {
-        SkyPoint *pThis = points->at(i);
+        SkyPoint *pThis = points->at(i).get();
         QPointF oThis   = m_proj->toScreen(pThis, true, &isVisible);
         // & with the result of checkVisibility to clip away things below horizon
         isVisible &= m_proj->checkVisibility(pThis);
@@ -898,13 +909,12 @@ void SkyQPainter::drawObservingList(const QList<SkyObject *> &obs)
 void SkyQPainter::drawFlags()
 {
     KStarsData *data = KStarsData::Instance();
-    SkyPoint *point;
+    std::shared_ptr<SkyPoint> point;
     QImage image;
     bool visible = false;
     QPointF pos;
-    int i;
 
-    for (i = 0; i < data->skyComposite()->flags()->size(); i++)
+    for (int i = 0; i < data->skyComposite()->flags()->size(); i++)
     {
         point = data->skyComposite()->flags()->pointList().at(i);
         image = data->skyComposite()->flags()->image(i);
@@ -913,7 +923,7 @@ void SkyQPainter::drawFlags()
         point->EquatorialToHorizontal(data->lst(), data->geo()->lat());
 
         // Get flag position on screen
-        pos = m_proj->toScreen(point, true, &visible);
+        pos = m_proj->toScreen(point.get(), true, &visible);
 
         // Return if flag is not visible
         if (!visible || !m_proj->onScreen(pos))

@@ -14,20 +14,20 @@
  *                                                                         *
  ***************************************************************************/
 
-#include "Options.h"
-#include "projections/projector.h"
-
-#include "skynodes/pointsourcenode.h"
-#include "labelsitem.h"
 #include "deepstaritem.h"
 
 #include "deepstarcomponent.h"
-#include "starcomponent.h"
-
-#include "starblockfactory.h"
-#include "skymesh.h"
+#include "labelsitem.h"
+#include "Options.h"
 #include "rootnode.h"
-
+#include "skymesh.h"
+#include "starblock.h"
+#include "starblockfactory.h"
+#include "starblocklist.h"
+#include "starcomponent.h"
+#include "htmesh/MeshIterator.h"
+#include "projections/projector.h"
+#include "skynodes/pointsourcenode.h"
 #include "skynodes/trixelnode.h"
 
 DeepStarItem::DeepStarItem(DeepStarComponent *deepStarComp, RootNode *rootNode)
