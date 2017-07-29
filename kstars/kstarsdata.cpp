@@ -25,6 +25,7 @@
 #include "skycomponents/skymapcomposite.h"
 #ifndef KSTARS_LITE
 #include "imageexporter.h"
+#include "kstars.h"
 #include "observinglist.h"
 #include "skymap.h"
 #include "dialogs/detaildialog.h"
@@ -218,7 +219,7 @@ void KStarsData::updateTime(GeoLocation *geo, const bool automaticDSTchange)
 
     if (std::abs(ut().djd() - LastNumUpdate.djd()) > 1.0)
     {
-        LastNumUpdate = ut().djd();
+        LastNumUpdate = KStarsDateTime(ut().djd());
         m_preUpdateNumID++;
         m_preUpdateNum = KSNumbers(num);
         skyComposite()->update(&num);
@@ -226,7 +227,7 @@ void KStarsData::updateTime(GeoLocation *geo, const bool automaticDSTchange)
 
     if (std::abs(ut().djd() - LastPlanetUpdate.djd()) > 0.01)
     {
-        LastPlanetUpdate = ut().djd();
+        LastPlanetUpdate = KStarsDateTime(ut().djd());
         skyComposite()->updateSolarSystemBodies(&num);
     }
 
@@ -270,10 +271,10 @@ unsigned int KStarsData::incUpdateID()
 void KStarsData::setFullTimeUpdate()
 {
     //Set the update markers to invalid dates to trigger updates in each category
-    LastSkyUpdate    = QDateTime();
-    LastPlanetUpdate = QDateTime();
-    LastMoonUpdate   = QDateTime();
-    LastNumUpdate    = QDateTime();
+    LastSkyUpdate    = KStarsDateTime(QDateTime());
+    LastPlanetUpdate = KStarsDateTime(QDateTime());
+    LastMoonUpdate   = KStarsDateTime(QDateTime());
+    LastNumUpdate    = KStarsDateTime(QDateTime());
 }
 
 void KStarsData::syncLST()
@@ -460,10 +461,10 @@ bool KStarsData::readTimeZoneRulebook()
             {
                 QStringList fields = line.split(' ', QString::SkipEmptyParts);
                 QString id         = fields[0];
-                QTime stime        = QTime(fields[3].left(fields[3].indexOf(':')).toInt(),
-                                    fields[3].mid(fields[3].indexOf(':') + 1, fields[3].length()).toInt());
-                QTime rtime        = QTime(fields[6].left(fields[6].indexOf(':')).toInt(),
-                                    fields[6].mid(fields[6].indexOf(':') + 1, fields[6].length()).toInt());
+                QTime stime        = QTime(fields[3].leftRef(fields[3].indexOf(':')).toInt(),
+                                    fields[3].midRef(fields[3].indexOf(':') + 1, fields[3].length()).toInt());
+                QTime rtime        = QTime(fields[6].leftRef(fields[6].indexOf(':')).toInt(),
+                                    fields[6].midRef(fields[6].indexOf(':') + 1, fields[6].length()).toInt());
 
                 Rulebook[id] = TimeZoneRule(fields[1], fields[2], stime, fields[4], fields[5], rtime);
             }
@@ -622,6 +623,11 @@ bool KStarsData::openUrlFile(const QString &urlfile, QFile &file)
 // FIXME: This is a significant contributor to KStars start-up time
 bool KStarsData::readURLData(const QString &urlfile, int type, bool deepOnly)
 {
+#ifndef KSTARS_LITE
+    if (KStars::Closing)
+        return true;
+#endif
+
     QFile file;
     if (!openUrlFile(urlfile, file))
         return false;
@@ -635,6 +641,14 @@ bool KStarsData::readURLData(const QString &urlfile, int type, bool deepOnly)
         //ignore comment lines
         if (!line.startsWith('#'))
         {
+#ifndef KSTARS_LITE
+            if (KStars::Closing)
+            {
+                file.close();
+                return true;
+            }
+#endif
+
             int idx      = line.indexOf(':');
             QString name = line.left(idx);
             if (name == "XXX")
@@ -980,8 +994,7 @@ bool KStarsData::executeScript(const QString &scriptname, SkyMap *map)
 
                     if (!ok)
                         qDebug() << QString("Unable to load color scheme named %1. Also tried %2.")
-                                        .arg(csName)
-                                        .arg(filename);
+                                        .arg(csName, filename);
                 }
             }
             else if (fn[0] == "zoom" && fn.size() == 2)

@@ -9,44 +9,27 @@
     version 2 of the License, or (at your option) any later version.
 */
 
+#include "internalguider.h"
+
+#include "gmath.h"
+#include "Options.h"
+#include "auxiliary/kspaths.h"
+#include "fitsviewer/fitsview.h"
+
 #include <KMessageBox>
 #include <KNotification>
 
-#include "auxiliary/kspaths.h"
-#include "auxiliary/QProgressIndicator.h"
-
-#include "internalguider.h"
-#include "gmath.h"
-
-#include "Options.h"
-
-#define MAX_DITHER_RETIRES 20
+#include <QTimer>
 
 namespace Ekos
 {
 InternalGuider::InternalGuider()
 {
     // Create math object
-    pmath = new cgmath();
-
-    connect(pmath, SIGNAL(newStarPosition(QVector3D, bool)), this, SIGNAL(newStarPosition(QVector3D, bool)));
-
-    // Calibration
-    calibrationStage = CAL_IDLE;
+    pmath.reset(new cgmath());
+    connect(pmath.get(), SIGNAL(newStarPosition(QVector3D,bool)), this, SIGNAL(newStarPosition(QVector3D,bool)));
 
     state = GUIDE_IDLE;
-
-    auto_drift_time = 5;
-
-    start_x1 = start_y1 = 0;
-    end_x1 = end_y1 = 0;
-    start_x2 = start_y2 = 0;
-    end_x2 = end_y2 = 0;
-}
-
-InternalGuider::~InternalGuider()
-{
-    delete (pmath);
 }
 
 bool InternalGuider::guide()
@@ -360,7 +343,7 @@ void InternalGuider::reset()
 {
     state = GUIDE_IDLE;
     //calibrationStage = CAL_IDLE;
-    connect(guideFrame, SIGNAL(trackingStarSelected(int, int)), this, SLOT(trackingStarSelected(int, int)),
+    connect(guideFrame, SIGNAL(trackingStarSelected(int,int)), this, SLOT(trackingStarSelected(int,int)),
             Qt::UniqueConnection);
 }
 
@@ -697,7 +680,7 @@ void InternalGuider::calibrateRADECRecticle(bool ra_only)
     }
 }
 
-void InternalGuider::setStarPosition(QVector3D starCenter)
+void InternalGuider::setStarPosition(QVector3D &starCenter)
 {
     pmath->setReticleParameters(starCenter.x(), starCenter.y(), -1);
 }

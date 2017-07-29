@@ -6,7 +6,7 @@ ActionReply DownloadHelper::saveindexfile(const QVariantMap &args)
     QString filename = args["filename"].toString();
     QFile file(filename);
 
-    if (file.open(QIODevice::WriteOnly) == false)
+    if (!file.open(QIODevice::WriteOnly))
     {
         reply = ActionReply::HelperErrorReply();
         reply.setErrorDescription(file.errorString());
@@ -30,7 +30,7 @@ ActionReply DownloadHelper::removeindexfileset(const QVariantMap &args)
     QStringList nameFilter("*.fits");
     QDir directory(astrometryDataDir);
     QStringList indexList = directory.entryList(nameFilter);
-    foreach (QString fileName, indexList)
+    for (auto& fileName : indexList)
     {
         if (fileName.contains(indexSetName.left(10)))
         {

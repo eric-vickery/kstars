@@ -15,48 +15,35 @@
  *                                                                         *
  ***************************************************************************/
 
-#include <QFile>
-#include <QDir>
-#include <QTextStream>
-#include <QStatusBar>
-#include <QMenu>
-#include <QWidgetAction>
-
-#include <KActionCollection>
-#include <KActionMenu>
-#include <KTipDialog>
-#include <KStandardAction>
-#include <KToggleAction>
-#include <KToolBar>
-#include <KNewStuff3/kns3/knewstuffaction.h>
-
-#include <KMessageBox>
-
-#include "Options.h"
-#include "fov.h"
 #include "kstars.h"
-#include "kstarsdata.h"
-#include "kspaths.h"
-#include "skymap.h"
-#include "projections/projector.h"
-#include "skyobjects/skyobject.h"
-#include "skyobjects/ksplanetbase.h"
-#include "simclock.h"
-#include "widgets/timestepbox.h"
-#include "oal/equipmentwriter.h"
-#include "oal/observeradd.h"
-#include "skycomponents/skymapcomposite.h"
-#include "texturemanager.h"
-#include "kspaths.h"
 
-#include <config-kstars.h>
-#include <QStandardPaths>
+#include "fov.h"
+#include "kspaths.h"
+#include "kstarsdata.h"
+#include "Options.h"
+#include "skymap.h"
+#include "texturemanager.h"
+#include "projections/projector.h"
+#include "skycomponents/skymapcomposite.h"
+#include "skyobjects/ksplanetbase.h"
+#include "widgets/timespinbox.h"
+#include "widgets/timestepbox.h"
 
 #ifdef HAVE_INDI
 #include "indi/drivermanager.h"
 #include "indi/guimanager.h"
 #include "ekos/ekosmanager.h"
 #endif
+
+#include <KActionCollection>
+#include <KActionMenu>
+#include <KTipDialog>
+#include <KToggleAction>
+#include <KToolBar>
+#include <KNewStuff3/kns3/knewstuffaction.h>
+
+#include <QMenu>
+#include <QStatusBar>
 
 //This file contains functions that kstars calls at startup (except constructors).
 //These functions are declared in kstars.h
@@ -205,11 +192,11 @@ void KStars::initActions()
     actionCollection()->addAction("time_step_forward", this, SLOT(slotStepForward()))
         << i18n("Advance one step forward in time")
         << QIcon::fromTheme("media-skip-forward", QIcon(":/icons/breeze/default/media-skip-forward.svg"))
-        << QKeySequence(Qt::Key_Greater, Qt::Key_Period);
+        << QKeySequence(Qt::Key_Greater);
     actionCollection()->addAction("time_step_backward", this, SLOT(slotStepBackward()))
         << i18n("Advance one step backward in time")
         << QIcon::fromTheme("media-skip-backward", QIcon(":/icons/breeze/default/media-skip-backward.svg"))
-        << QKeySequence(Qt::Key_Less, Qt::Key_Comma);
+        << QKeySequence(Qt::Key_Less);
 
     // ==== Pointing Menu ================
     actionCollection()->addAction("zenith", this, SLOT(slotPointFocus())) << i18n("&Zenith") << QKeySequence("Z");
@@ -761,7 +748,7 @@ void KStars::buildGUI()
     TextureManager::Create();
     //create the skymap
     m_SkyMap = SkyMap::Create();
-    connect(m_SkyMap, SIGNAL(mousePointChanged(SkyPoint *)), SLOT(slotShowPositionBar(SkyPoint *)));
+    connect(m_SkyMap, SIGNAL(mousePointChanged(SkyPoint*)), SLOT(slotShowPositionBar(SkyPoint*)));
     connect(m_SkyMap, SIGNAL(zoomChanged()), SLOT(slotZoomChanged()));
     setCentralWidget(m_SkyMap);
 

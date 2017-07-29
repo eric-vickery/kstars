@@ -18,73 +18,54 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
+
 #include "skymap.h"
 
-#include <cmath>
-
-#include <QCursor>
-#include <QBitmap>
-#include <QPainter>
-#include <QPixmap>
-#include <QToolTip>
-#include <QTextStream>
-#include <QFile>
-#include <QPointF>
-#include <QApplication>
-#include <QGraphicsScene>
-#include <QInputDialog>
-#include <QIcon>
-#include <QDesktopServices>
-
-#include <KActionCollection>
-#include <KConfig>
-//#include <KIconThemes/KIconLoader>
-#include <KToolBar>
-#include <KToolInvocation>
-#include <KMessageBox>
-
-#include "Options.h"
-#include "kstars.h"
-#include "kspaths.h"
-#include "kstarsdata.h"
-#include "ksutils.h"
-#include "ksdssdownloader.h"
-#include "imageviewer.h"
-#include "dialogs/detaildialog.h"
-#include "kspopupmenu.h"
-#include "printing/printingwizard.h"
-#include "simclock.h"
-#include "skyobjects/skyobject.h"
-#include "skyobjects/deepskyobject.h"
-#include "skyobjects/ksplanetbase.h"
-#include "skycomponents/skymapcomposite.h"
-#include "skycomponents/flagcomponent.h"
-#include "widgets/infoboxwidget.h"
-#include "projections/projector.h"
-#include "projections/lambertprojector.h"
-#include "projections/gnomonicprojector.h"
-#include "projections/stereographicprojector.h"
-#include "projections/orthographicprojector.h"
-#include "projections/azimuthalequidistantprojector.h"
-#include "projections/equirectangularprojector.h"
 #include "fov.h"
-
-#include "tools/flagmanager.h"
-
-#include "texturemanager.h"
-
-#include "skymapqdraw.h"
-
+#include "imageviewer.h"
+#include "ksdssdownloader.h"
+#include "kspaths.h"
+#include "kspopupmenu.h"
+#include "kstars.h"
+#include "ksutils.h"
+#include "Options.h"
+#include "skymapcomposite.h"
 #ifdef HAVE_OPENGL
 #include "skymapgldraw.h"
 #endif
-
+#include "skymapqdraw.h"
 #include "starhopperdialog.h"
+#include "starobject.h"
+#include "texturemanager.h"
+#include "dialogs/detaildialog.h"
+#include "printing/printingwizard.h"
+#include "skycomponents/flagcomponent.h"
+#include "skyobjects/deepskyobject.h"
+#include "skyobjects/ksplanetbase.h"
+#include "tools/flagmanager.h"
+#include "widgets/infoboxwidget.h"
+#include "projections/azimuthalequidistantprojector.h"
+#include "projections/equirectangularprojector.h"
+#include "projections/lambertprojector.h"
+#include "projections/gnomonicprojector.h"
+#include "projections/orthographicprojector.h"
+#include "projections/stereographicprojector.h"
+
+#include <KActionCollection>
+#include <KToolBar>
+#include <KToolInvocation>
+
+#include <QBitmap>
+#include <QToolTip>
+#include <QInputDialog>
+#include <QDesktopServices>
 
 #ifdef HAVE_XPLANET
 #include <QProcess>
 #include <QFileDialog>
 #endif
+
+#include <cmath>
 
 namespace
 {
@@ -199,8 +180,8 @@ SkyMap::SkyMap()
     m_objBox = new InfoBoxWidget(Options::shadeFocusBox(), Options::positionFocusBox(), Options::stickyFocusBox(),
                                  QStringList(), this);
     m_objBox->setVisible(Options::showFocusBox());
-    connect(this, SIGNAL(objectChanged(SkyObject *)), m_objBox, SLOT(slotObjectChanged(SkyObject *)));
-    connect(this, SIGNAL(positionChanged(SkyPoint *)), m_objBox, SLOT(slotPointChanged(SkyPoint *)));
+    connect(this, SIGNAL(objectChanged(SkyObject*)), m_objBox, SLOT(slotObjectChanged(SkyObject*)));
+    connect(this, SIGNAL(positionChanged(SkyPoint*)), m_objBox, SLOT(slotPointChanged(SkyPoint*)));
 
     m_SkyMapDraw = new SkyMapQDraw(this);
     m_SkyMapDraw->setMouseTracking(true);
@@ -781,9 +762,9 @@ bool SkyMap::isObjectLabeled(SkyObject *object)
 SkyPoint SkyMap::getCenterPoint()
 {
     SkyPoint retVal;
-    // FIXME: subtraction of these 0.00001 is a simple workaround, because wrong SkyPoint is returned when _exact_ center of
-    // SkyMap is passed to the projector.
-    retVal = projector()->fromScreen(QPointF(width() / 2 - 0.00001, height() / 2 - 0.00001), data->lst(),
+    // FIXME: subtraction of these 0.00001 is a simple workaround, because wrong
+    // SkyPoint is returned when _exact_ center of SkyMap is passed to the projector.
+    retVal = projector()->fromScreen(QPointF((qreal)width() / 2 - 0.00001, (qreal)height() / 2 - 0.00001), data->lst(),
                                      data->geo()->lat());
     return retVal;
 }

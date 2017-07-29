@@ -17,23 +17,6 @@
 
 #include "scriptbuilder.h"
 
-//needed in slotSave() for chmod() syscall
-#include <sys/stat.h>
-
-#include <QApplication>
-#include <QFontMetrics>
-#include <QTreeWidget>
-#include <QTextStream>
-#include <QFileDialog>
-#include <QStandardPaths>
-#include <QDebug>
-
-#include <KLocalizedString>
-#include <KMessageBox>
-#include <KIO/StoredTransferJob>
-#include <KIO/CopyJob>
-#include <KJob>
-
 #include "kspaths.h"
 #include "scriptfunction.h"
 #include "kstars.h"
@@ -43,7 +26,24 @@
 #include "dialogs/finddialog.h"
 #include "dialogs/locationdialog.h"
 #include "widgets/dmsbox.h"
+#include "widgets/timespinbox.h"
 #include "widgets/timestepbox.h"
+
+#include <KLocalizedString>
+#include <KMessageBox>
+#include <KIO/StoredTransferJob>
+#include <KIO/CopyJob>
+#include <KJob>
+
+#include <QApplication>
+#include <QFontMetrics>
+#include <QTreeWidget>
+#include <QTextStream>
+#include <QFileDialog>
+#include <QStandardPaths>
+#include <QDebug>
+
+#include <sys/stat.h>
 
 OptionsTreeViewWidget::OptionsTreeViewWidget(QWidget *p) : QFrame(p)
 {
@@ -55,11 +55,11 @@ OptionsTreeViewWidget::OptionsTreeViewWidget(QWidget *p) : QFrame(p)
 
 OptionsTreeView::OptionsTreeView(QWidget *p) : QDialog(p)
 {
-    otvw = new OptionsTreeViewWidget(this);
+    otvw.reset(new OptionsTreeViewWidget(this));
 
     QVBoxLayout *mainLayout = new QVBoxLayout;
 
-    mainLayout->addWidget(otvw);
+    mainLayout->addWidget(otvw.get());
     setLayout(mainLayout);
 
     setWindowTitle(i18n("Options"));
@@ -74,7 +74,6 @@ OptionsTreeView::OptionsTreeView(QWidget *p) : QDialog(p)
 
 OptionsTreeView::~OptionsTreeView()
 {
-    delete otvw;
 }
 
 void OptionsTreeView::resizeColumns()
@@ -145,7 +144,7 @@ ScriptNameDialog::ScriptNameDialog(QWidget *p) : QDialog(p)
 
     okB = buttonBox->button(QDialogButtonBox::Ok);
 
-    connect(snw->ScriptName, SIGNAL(textChanged(const QString &)), this, SLOT(slotEnableOkButton()));
+    connect(snw->ScriptName, SIGNAL(textChanged(QString)), this, SLOT(slotEnableOkButton()));
 }
 
 ScriptNameDialog::~ScriptNameDialog()
@@ -343,10 +342,10 @@ ScriptBuilder::ScriptBuilder(QWidget *parent)
     otv->resizeColumns();
 
     //connect widgets in ScriptBuilderUI
-    connect(sb->FunctionTree, SIGNAL(itemDoubleClicked(QTreeWidgetItem *, int)), this, SLOT(slotAddFunction()));
-    connect(sb->FunctionTree, SIGNAL(itemClicked(QTreeWidgetItem *, int)), this, SLOT(slotShowDoc()));
+    connect(sb->FunctionTree, SIGNAL(itemDoubleClicked(QTreeWidgetItem*,int)), this, SLOT(slotAddFunction()));
+    connect(sb->FunctionTree, SIGNAL(itemClicked(QTreeWidgetItem*,int)), this, SLOT(slotShowDoc()));
     connect(sb->UpButton, SIGNAL(clicked()), this, SLOT(slotMoveFunctionUp()));
-    connect(sb->ScriptListBox, SIGNAL(itemClicked(QListWidgetItem *)), this, SLOT(slotArgWidget()));
+    connect(sb->ScriptListBox, SIGNAL(itemClicked(QListWidgetItem*)), this, SLOT(slotArgWidget()));
     connect(sb->DownButton, SIGNAL(clicked()), this, SLOT(slotMoveFunctionDown()));
     connect(sb->CopyButton, SIGNAL(clicked()), this, SLOT(slotCopyFunction()));
     connect(sb->RemoveButton, SIGNAL(clicked()), this, SLOT(slotRemoveFunction()));
@@ -363,32 +362,32 @@ ScriptBuilder::ScriptBuilder(QWidget *parent)
     connect(argChangeViewOption->TreeButton, SIGNAL(clicked()), this, SLOT(slotShowOptions()));
     connect(argFindObject->FindButton, SIGNAL(clicked()), this, SLOT(slotFindObject()));
 
-    connect(argLookToward->FocusEdit, SIGNAL(editTextChanged(const QString &)), this, SLOT(slotLookToward()));
-    connect(argFindObject->NameEdit, SIGNAL(textChanged(const QString &)), this, SLOT(slotArgFindObject()));
-    connect(argSetRaDec->RABox, SIGNAL(textChanged(const QString &)), this, SLOT(slotRa()));
-    connect(argSetRaDec->DecBox, SIGNAL(textChanged(const QString &)), this, SLOT(slotDec()));
-    connect(argSetAltAz->AltBox, SIGNAL(textChanged(const QString &)), this, SLOT(slotAlt()));
-    connect(argSetAltAz->AzBox, SIGNAL(textChanged(const QString &)), this, SLOT(slotAz()));
-    connect(argSetLocalTime->DateWidget, SIGNAL(dateChanged(const QDate &)), this, SLOT(slotChangeDate()));
-    connect(argSetLocalTime->TimeBox, SIGNAL(timeChanged(const QTime &)), this, SLOT(slotChangeTime()));
+    connect(argLookToward->FocusEdit, SIGNAL(editTextChanged(QString)), this, SLOT(slotLookToward()));
+    connect(argFindObject->NameEdit, SIGNAL(textChanged(QString)), this, SLOT(slotArgFindObject()));
+    connect(argSetRaDec->RABox, SIGNAL(textChanged(QString)), this, SLOT(slotRa()));
+    connect(argSetRaDec->DecBox, SIGNAL(textChanged(QString)), this, SLOT(slotDec()));
+    connect(argSetAltAz->AltBox, SIGNAL(textChanged(QString)), this, SLOT(slotAlt()));
+    connect(argSetAltAz->AzBox, SIGNAL(textChanged(QString)), this, SLOT(slotAz()));
+    connect(argSetLocalTime->DateWidget, SIGNAL(dateChanged(QDate)), this, SLOT(slotChangeDate()));
+    connect(argSetLocalTime->TimeBox, SIGNAL(timeChanged(QTime)), this, SLOT(slotChangeTime()));
     connect(argWaitFor->DelayBox, SIGNAL(valueChanged(int)), this, SLOT(slotWaitFor()));
-    connect(argWaitForKey->WaitKeyEdit, SIGNAL(textChanged(const QString &)), this, SLOT(slotWaitForKey()));
+    connect(argWaitForKey->WaitKeyEdit, SIGNAL(textChanged(QString)), this, SLOT(slotWaitForKey()));
     connect(argSetTracking->CheckTrack, SIGNAL(stateChanged(int)), this, SLOT(slotTracking()));
-    connect(argChangeViewOption->OptionName, SIGNAL(activated(const QString &)), this, SLOT(slotViewOption()));
-    connect(argChangeViewOption->OptionValue, SIGNAL(textChanged(const QString &)), this, SLOT(slotViewOption()));
-    connect(argSetGeoLocation->CityName, SIGNAL(textChanged(const QString &)), this, SLOT(slotChangeCity()));
-    connect(argSetGeoLocation->ProvinceName, SIGNAL(textChanged(const QString &)), this, SLOT(slotChangeProvince()));
-    connect(argSetGeoLocation->CountryName, SIGNAL(textChanged(const QString &)), this, SLOT(slotChangeCountry()));
+    connect(argChangeViewOption->OptionName, SIGNAL(activated(QString)), this, SLOT(slotViewOption()));
+    connect(argChangeViewOption->OptionValue, SIGNAL(textChanged(QString)), this, SLOT(slotViewOption()));
+    connect(argSetGeoLocation->CityName, SIGNAL(textChanged(QString)), this, SLOT(slotChangeCity()));
+    connect(argSetGeoLocation->ProvinceName, SIGNAL(textChanged(QString)), this, SLOT(slotChangeProvince()));
+    connect(argSetGeoLocation->CountryName, SIGNAL(textChanged(QString)), this, SLOT(slotChangeCountry()));
     connect(argTimeScale->TimeScale, SIGNAL(scaleChanged(float)), this, SLOT(slotTimeScale()));
-    connect(argZoom->ZoomBox, SIGNAL(textChanged(const QString &)), this, SLOT(slotZoom()));
-    connect(argExportImage->ExportFileName, SIGNAL(textChanged(const QString &)), this, SLOT(slotExportImage()));
+    connect(argZoom->ZoomBox, SIGNAL(textChanged(QString)), this, SLOT(slotZoom()));
+    connect(argExportImage->ExportFileName, SIGNAL(textChanged(QString)), this, SLOT(slotExportImage()));
     connect(argExportImage->ExportWidth, SIGNAL(valueChanged(int)), this, SLOT(slotExportImage()));
     connect(argExportImage->ExportHeight, SIGNAL(valueChanged(int)), this, SLOT(slotExportImage()));
     connect(argPrintImage->UsePrintDialog, SIGNAL(toggled(bool)), this, SLOT(slotPrintImage()));
     connect(argPrintImage->UseChartColors, SIGNAL(toggled(bool)), this, SLOT(slotPrintImage()));
-    connect(argSetColor->ColorName, SIGNAL(activated(const QString &)), this, SLOT(slotChangeColorName()));
-    connect(argSetColor->ColorValue, SIGNAL(changed(const QColor &)), this, SLOT(slotChangeColor()));
-    connect(argLoadColorScheme->SchemeList, SIGNAL(itemClicked(QListWidgetItem *)), this, SLOT(slotLoadColorScheme()));
+    connect(argSetColor->ColorName, SIGNAL(activated(QString)), this, SLOT(slotChangeColorName()));
+    connect(argSetColor->ColorValue, SIGNAL(changed(QColor)), this, SLOT(slotChangeColor()));
+    connect(argLoadColorScheme->SchemeList, SIGNAL(itemClicked(QListWidgetItem*)), this, SLOT(slotLoadColorScheme()));
 
     //disable some buttons
     sb->CopyButton->setEnabled(false);
@@ -1128,9 +1127,9 @@ void ScriptBuilder::readScript(QTextStream &istream)
             //remove leading dbus prefix
             line = line.mid(line.lastIndexOf(service_name) + service_name.count());
 
-            fn_name = line.left(line.indexOf(" "));
+            fn_name = line.left(line.indexOf(' '));
 
-            line = line.mid(line.indexOf(" ") + 1);
+            line = line.mid(line.indexOf(' ') + 1);
 
             //construct a stringlist that is fcn name and its arg name/value pairs
             QStringList fn;
@@ -1178,14 +1177,14 @@ bool ScriptBuilder::parseFunction(QString fn_name, QStringList &fn)
 
         if (cur.startsWith('\"'))
         {
-            arg += cur.right(cur.length() - 1);
+            arg += cur.rightRef(cur.length() - 1);
             arg += ' ';
             foundQuote     = true;
             quoteProcessed = true;
         }
         else if (cur.endsWith('\"'))
         {
-            arg += cur.left(cur.length() - 1);
+            arg += cur.leftRef(cur.length() - 1);
             arg += '\'';
             foundQuote = false;
         }
@@ -1315,14 +1314,13 @@ void ScriptBuilder::slotRemoveFunction()
 
 void ScriptBuilder::slotAddFunction()
 {
-    ScriptFunction *sc           = nullptr;
     ScriptFunction *found        = nullptr;
     QTreeWidgetItem *currentItem = sb->FunctionTree->currentItem();
 
     if (currentItem == nullptr || currentItem->parent() == nullptr)
         return;
 
-    foreach (sc, KStarsFunctionList)
+    for (auto &sc : KStarsFunctionList)
     {
         if (sc->prototype() == currentItem->text(0))
         {
@@ -1331,7 +1329,7 @@ void ScriptBuilder::slotAddFunction()
         }
     }
 
-    foreach (sc, SimClockFunctionList)
+    for (auto &sc : SimClockFunctionList)
     {
         if (sc->prototype() == currentItem->text(0))
         {
@@ -1447,7 +1445,6 @@ void ScriptBuilder::slotArgWidget()
     //Display the function's arguments widget
     if (sb->ScriptListBox->currentRow() > -1 && sb->ScriptListBox->currentRow() < ((int)sb->ScriptListBox->count()))
     {
-        QString t          = sb->ScriptListBox->currentItem()->text();
         unsigned int n     = sb->ScriptListBox->currentRow();
         ScriptFunction *sf = ScriptList.at(n);
 
@@ -1680,14 +1677,13 @@ void ScriptBuilder::slotArgWidget()
 
 void ScriptBuilder::slotShowDoc()
 {
-    ScriptFunction *sc           = nullptr;
     ScriptFunction *found        = nullptr;
     QTreeWidgetItem *currentItem = sb->FunctionTree->currentItem();
 
     if (currentItem == nullptr || currentItem->parent() == nullptr)
         return;
 
-    foreach (sc, KStarsFunctionList)
+    for (auto &sc : KStarsFunctionList)
     {
         if (sc->prototype() == currentItem->text(0))
         {
@@ -1696,7 +1692,7 @@ void ScriptBuilder::slotShowDoc()
         }
     }
 
-    foreach (sc, SimClockFunctionList)
+    for (auto &sc : SimClockFunctionList)
     {
         if (sc->prototype() == currentItem->text(0))
         {

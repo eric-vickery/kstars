@@ -27,6 +27,7 @@
 #include "dms.h"
 #include "skyobjects/skypoint.h"
 #include "geolocation.h"
+#include "kstars.h"
 #include "kstarsdata.h"
 #include "kstarsdatetime.h"
 #include "widgets/dmsbox.h"
@@ -47,7 +48,7 @@ modCalcVlsr::modCalcVlsr(QWidget *parentSplit) : QFrame(parentSplit), velocityFl
     VTopo->setValidator(new QDoubleValidator(VTopo));
 
     // signals and slots connections
-    connect(Date, SIGNAL(dateTimeChanged(const QDateTime &)), this, SLOT(slotCompute()));
+    connect(Date, SIGNAL(dateTimeChanged(QDateTime)), this, SLOT(slotCompute()));
     connect(NowButton, SIGNAL(clicked()), this, SLOT(slotNow()));
     connect(LocationButton, SIGNAL(clicked()), this, SLOT(slotLocation()));
     connect(ObjectButton, SIGNAL(clicked()), this, SLOT(slotFindObject()));
@@ -116,8 +117,9 @@ void modCalcVlsr::slotCompute()
     if (!ok1 || !ok2)
         return;
 
-    KStarsDateTime dt = Date->dateTime();
+    KStarsDateTime dt(Date->dateTime());
     double vst[3];
+
     geoPlace->TopocentricVelocity(vst, dt.gst());
 
     if (sender()->objectName() == "VLSR")

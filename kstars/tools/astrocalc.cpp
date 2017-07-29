@@ -17,16 +17,6 @@
 
 #include "astrocalc.h"
 
-#include <QSplitter>
-#include <QStackedWidget>
-#include <QTreeWidget>
-#include <QTreeWidgetItem>
-#include <QDialogButtonBox>
-#include <QTextEdit>
-
-#include <KLocalizedString>
-
-#include "dms.h"
 #include "modcalcjd.h"
 #include "modcalcgeodcoord.h"
 #include "modcalcgalcoord.h"
@@ -40,6 +30,13 @@
 #include "modcalcvizequinox.h"
 #include "modcalcvlsr.h"
 #include "conjunctions.h"
+
+#include <QDialogButtonBox>
+#include <QSplitter>
+#include <QStackedWidget>
+#include <QTextEdit>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 
 AstroCalc::AstroCalc(QWidget *parent) : QDialog(parent)
 {
@@ -178,8 +175,8 @@ AstroCalc::AstroCalc(QWidget *parent) : QDialog(parent)
     addTreeItem<ConjunctionsTool>(solarItem, i18n("Conjunctions"));
 
     acStack->setCurrentWidget(splashScreen);
-    connect(navigationPanel, SIGNAL(itemClicked(QTreeWidgetItem *, int)), this,
-            SLOT(slotItemSelection(QTreeWidgetItem *)));
+    connect(navigationPanel, SIGNAL(itemClicked(QTreeWidgetItem*,int)), this,
+            SLOT(slotItemSelection(QTreeWidgetItem*)));
 }
 
 template <typename T>
@@ -191,22 +188,19 @@ QWidget *AstroCalc::addToStack()
 }
 
 template <typename T>
-QTreeWidgetItem *AstroCalc::addTreeItem(QTreeWidgetItem *parent, QString title)
+QTreeWidgetItem *AstroCalc::addTreeItem(QTreeWidgetItem *parent, const QString &title)
 {
     QTreeWidgetItem *item = new QTreeWidgetItem(parent, QStringList(title));
     dispatchTable.insert(item, WidgetThunk(this, &AstroCalc::addToStack<T>));
     return item;
 }
 
-QTreeWidgetItem *AstroCalc::addTreeTopItem(QTreeWidget *parent, QString title, QString html)
+QTreeWidgetItem *AstroCalc::addTreeTopItem(QTreeWidget *parent, const QString &title, const QString &html)
 {
     QTreeWidgetItem *item = new QTreeWidgetItem(parent, QStringList(title));
+
     htmlTable.insert(item, html);
     return item;
-}
-
-AstroCalc::~AstroCalc()
-{
 }
 
 void AstroCalc::slotItemSelection(QTreeWidgetItem *item)

@@ -210,10 +210,9 @@ QString ScriptFunction::prototype() const
 QString ScriptFunction::scriptLine() const
 {
     QString out(Name);
-    QString dbus_type;
     unsigned int i = 0;
 
-    while (!ArgName[i].isEmpty() && i < 6)
+    while (i < 6 && !ArgName[i].isEmpty())
     {
         //Make sure strings are quoted
         QString value = ArgVal[i];
@@ -225,7 +224,7 @@ QString ScriptFunction::scriptLine() const
             }
             else
             {
-                if (value.left(1) != "\"" && value.left(1) != "\'")
+                if (value.at(0) != '\"' && value.at(0) != '\'')
                 {
                     value = '\"' + value;
                 }

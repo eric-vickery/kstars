@@ -17,19 +17,14 @@
 
 #include "modcalcdaylength.h"
 
-#include <KLineEdit>
-
-#include <KLocalizedString>
-#include <KMessageBox>
-
-#include "skyobjects/skyobject.h"
 #include "geolocation.h"
 #include "kstarsdata.h"
-#include "skyobjects/kssun.h"
-#include "skyobjects/ksmoon.h"
-#include "ksnumbers.h"
-#include "kstarsdatetime.h"
 #include "dialogs/locationdialog.h"
+#include "skyobjects/ksmoon.h"
+#include "skyobjects/kssun.h"
+#include "skyobjects/skyobject.h"
+
+#include <KLineEdit>
 
 modCalcDayLength::modCalcDayLength(QWidget *parentSplit) : QFrame(parentSplit)
 {
@@ -39,12 +34,12 @@ modCalcDayLength::modCalcDayLength(QWidget *parentSplit) : QFrame(parentSplit)
     initGeo();
     slotComputeAlmanac();
 
-    connect(Date, SIGNAL(dateChanged(const QDate &)), this, SLOT(slotComputeAlmanac()));
+    connect(Date, SIGNAL(dateChanged(QDate)), this, SLOT(slotComputeAlmanac()));
     connect(Location, SIGNAL(clicked()), this, SLOT(slotLocation()));
 
     connect(LocationBatch, SIGNAL(clicked()), this, SLOT(slotLocationBatch()));
-    connect(InputFileBatch, SIGNAL(urlSelected(const QUrl &)), this, SLOT(slotCheckFiles()));
-    connect(OutputFileBatch, SIGNAL(urlSelected(const QUrl &)), this, SLOT(slotCheckFiles()));
+    connect(InputFileBatch, SIGNAL(urlSelected(QUrl)), this, SLOT(slotCheckFiles()));
+    connect(OutputFileBatch, SIGNAL(urlSelected(QUrl)), this, SLOT(slotCheckFiles()));
     connect(RunButtonBatch, SIGNAL(clicked()), this, SLOT(slotRunBatch()));
     connect(ViewButtonBatch, SIGNAL(clicked()), this, SLOT(slotViewBatch()));
 
@@ -73,7 +68,7 @@ void modCalcDayLength::initGeo(void)
     LocationBatch->setText(geoBatch->fullName());
 }
 
-QTime modCalcDayLength::lengthOfDay(QTime setQTime, QTime riseQTime)
+QTime modCalcDayLength::lengthOfDay(const QTime &setQTime, const QTime &riseQTime)
 {
     QTime dL(0, 0, 0);
     int dds       = riseQTime.secsTo(setQTime);
@@ -124,13 +119,13 @@ void modCalcDayLength::updateAlmanac(const QDate &d, GeoLocation *geo)
     KSSun Sun;
     Sun.findPosition(&num);
 
-    QTime ssTime = Sun.riseSetTime(jd0, geo, false);
-    QTime srTime = Sun.riseSetTime(jd0, geo, true);
-    QTime stTime = Sun.transitTime(jd0, geo);
+    QTime ssTime = Sun.riseSetTime(KStarsDateTime(jd0), geo, false);
+    QTime srTime = Sun.riseSetTime(KStarsDateTime(jd0), geo, true);
+    QTime stTime = Sun.transitTime(KStarsDateTime(jd0), geo);
 
-    dms ssAz  = Sun.riseSetTimeAz(jd0, geo, false);
-    dms srAz  = Sun.riseSetTimeAz(jd0, geo, true);
-    dms stAlt = Sun.transitAltitude(jd0, geo);
+    dms ssAz  = Sun.riseSetTimeAz(KStarsDateTime(jd0), geo, false);
+    dms srAz  = Sun.riseSetTimeAz(KStarsDateTime(jd0), geo, true);
+    dms stAlt = Sun.transitAltitude(KStarsDateTime(jd0), geo);
 
     //In most cases, the Sun will rise and set:
     if (ssTime.isValid())
@@ -175,13 +170,13 @@ void modCalcDayLength::updateAlmanac(const QDate &d, GeoLocation *geo)
     //Moon
     KSMoon Moon;
 
-    QTime msTime = Moon.riseSetTime(jd0, geo, false);
-    QTime mrTime = Moon.riseSetTime(jd0, geo, true);
-    QTime mtTime = Moon.transitTime(jd0, geo);
+    QTime msTime = Moon.riseSetTime(KStarsDateTime(jd0), geo, false);
+    QTime mrTime = Moon.riseSetTime(KStarsDateTime(jd0), geo, true);
+    QTime mtTime = Moon.transitTime(KStarsDateTime(jd0), geo);
 
-    dms msAz  = Moon.riseSetTimeAz(jd0, geo, false);
-    dms mrAz  = Moon.riseSetTimeAz(jd0, geo, true);
-    dms mtAlt = Moon.transitAltitude(jd0, geo);
+    dms msAz  = Moon.riseSetTimeAz(KStarsDateTime(jd0), geo, false);
+    dms mrAz  = Moon.riseSetTimeAz(KStarsDateTime(jd0), geo, true);
+    dms mtAlt = Moon.transitAltitude(KStarsDateTime(jd0), geo);
 
     //In most cases, the Moon will rise and set:
     if (msTime.isValid())
@@ -296,7 +291,7 @@ void modCalcDayLength::processLines(QTextStream &istream)
 
     //Write header
     ostream << "# " << i18nc("%1 is a location on earth", "Almanac for %1", geoBatch->fullName())
-            << QString("  [%1, %2]").arg(geoBatch->lng()->toDMSString()).arg(geoBatch->lat()->toDMSString()) << endl
+            << QString("  [%1, %2]").arg(geoBatch->lng()->toDMSString(), geoBatch->lat()->toDMSString()) << endl
             << "# " << i18n("computed by KStars") << endl
             << "#" << endl
             << "# Date      SRise  STran  SSet     SRiseAz      STranAlt      SSetAz     DayLen    MRise  MTran  MSet  "

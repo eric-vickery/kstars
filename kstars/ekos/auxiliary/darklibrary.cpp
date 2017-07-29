@@ -7,17 +7,15 @@
     version 2 of the License, or (at your option) any later version.
  */
 
-#include <QVariantMap>
-
 #include "darklibrary.h"
+
 #include "Options.h"
 
 #include "kstars.h"
 #include "kspaths.h"
 #include "kstarsdata.h"
-#include "fitsviewer/fitsview.h"
 #include "fitsviewer/fitsdata.h"
-#include "auxiliary/ksuserdb.h"
+#include "fitsviewer/fitsview.h"
 
 namespace Ekos
 {
@@ -57,58 +55,54 @@ void DarkLibrary::refreshFromDB()
 
 FITSData *DarkLibrary::getDarkFrame(ISD::CCDChip *targetChip, double duration)
 {
-    foreach (QVariantMap map, darkFrames)
+    for (auto &map : darkFrames)
     {
-        // First check CCD name matches
-        if (map["ccd"].toString() == targetChip->getCCD()->getDeviceName())
+        // First check CCD name matches and check if we are on the correct chip
+        if (map["ccd"].toString() == targetChip->getCCD()->getDeviceName() &&
+            map["chip"].toInt() == static_cast<int>(targetChip->getType()))
         {
-            // Then check we are on the correct chip
-            if (map["chip"].toInt() == static_cast<int>(targetChip->getType()))
+            int binX, binY;
+            targetChip->getBinning(&binX, &binY);
+
+            // Then check if binning is the same
+            if (map["binX"].toInt() == binX && map["binY"].toInt() == binY)
             {
-                int binX, binY;
-                targetChip->getBinning(&binX, &binY);
-
-                // Then check if binning is the same
-                if (map["binX"].toInt() == binX && map["binY"].toInt() == binY)
+                // Then check for temperature
+                if (targetChip->getCCD()->hasCooler())
                 {
-                    // Then check for temperature
-                    if (targetChip->getCCD()->hasCooler())
-                    {
-                        double temperature = 0;
-                        targetChip->getCCD()->getTemperature(&temperature);
-                        // TODO make this configurable value, the threshold
-                        if (fabs(map["temperature"].toDouble() - temperature) > Options::maxDarkTemperatureDiff())
-                            continue;
-                    }
-
-                    // Then check for duration
-                    // TODO make this value configurable
-                    if (fabs(map["duration"].toDouble() - duration) > 0.05)
+                    double temperature = 0;
+                    targetChip->getCCD()->getTemperature(&temperature);
+                    // TODO make this configurable value, the threshold
+                    if (fabs(map["temperature"].toDouble() - temperature) > Options::maxDarkTemperatureDiff())
                         continue;
+                }
 
-                    // Finaly check if the duration is acceptable
-                    QDateTime frameTime = QDateTime::fromString(map["timestamp"].toString(), Qt::ISODate);
-                    if (frameTime.daysTo(QDateTime::currentDateTime()) > Options::darkLibraryDuration())
-                        continue;
+                // Then check for duration
+                // TODO make this value configurable
+                if (fabs(map["duration"].toDouble() - duration) > 0.05)
+                    continue;
 
-                    QString filename = map["filename"].toString();
+                // Finaly check if the duration is acceptable
+                QDateTime frameTime = QDateTime::fromString(map["timestamp"].toString(), Qt::ISODate);
+                if (frameTime.daysTo(QDateTime::currentDateTime()) > Options::darkLibraryDuration())
+                    continue;
 
-                    if (darkFiles.contains(filename))
-                        return darkFiles[filename];
+                QString filename = map["filename"].toString();
 
-                    // Finally we made it, let's put it in the hash
-                    bool rc = loadDarkFile(filename);
-                    if (rc)
-                        return darkFiles[filename];
-                    else
-                    {
-                        // Remove bad dark frame
-                        emit newLog(i18n("Removing bad dark frame file %1", filename));
-                        darkFiles.remove(filename);
-                        QFile::remove(filename);
-                        KStarsData::Instance()->userdb()->DeleteDarkFrame(filename);
-                        return nullptr;
-                    }
+                if (darkFiles.contains(filename))
+                    return darkFiles[filename];
+
+                // Finally we made it, let's put it in the hash
+                if (loadDarkFile(filename))
+                    return darkFiles[filename];
+                else
+                {
+                    // Remove bad dark frame
+                    emit newLog(i18n("Removing bad dark frame file %1", filename));
+                    darkFiles.remove(filename);
+                    QFile::remove(filename);
+                    KStarsData::Instance()->userdb()->DeleteDarkFrame(filename);
+                    return nullptr;
                 }
             }
         }
@@ -278,14 +272,12 @@ bool DarkLibrary::captureAndSubtract(ISD::CCDChip *targetChip, FITSView *targetI
         if (KMessageBox::questionYesNo(nullptr, i18n("Does %1 have mechanical or electronic shutter?", deviceName),
                                        i18n("Dark Exposure")) == KMessageBox::Yes)
         {
-            hasShutter   = true;
             hasNoShutter = false;
             shutterfulCCDs.append(deviceName);
             Options::setShutterfulCCDs(shutterfulCCDs);
         }
         else
         {
-            hasShutter   = false;
             hasNoShutter = true;
             shutterlessCCDs.append(deviceName);
             Options::setShutterlessCCDs(shutterlessCCDs);
@@ -316,7 +308,7 @@ bool DarkLibrary::captureAndSubtract(ISD::CCDChip *targetChip, FITSView *targetI
     subtractParams.offsetX     = offsetX;
     subtractParams.offsetY     = offsetY;
 
-    connect(targetChip->getCCD(), SIGNAL(BLOBUpdated(IBLOB *)), this, SLOT(newFITS(IBLOB *)));
+    connect(targetChip->getCCD(), SIGNAL(BLOBUpdated(IBLOB*)), this, SLOT(newFITS(IBLOB*)));
 
     emit newLog(i18n("Capturing dark frame..."));
 
@@ -348,6 +340,7 @@ void DarkLibrary::newFITS(IBLOB *bp)
     }
     else
     {
+        delete calibrationData;
         emit darkFrameCompleted(false);
         emit newLog(i18n("Warning: Cannot load calibration file %1", calibrationView->getImageData()->getFilename()));
     }

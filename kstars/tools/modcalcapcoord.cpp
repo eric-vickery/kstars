@@ -17,19 +17,18 @@
 
 #include "modcalcapcoord.h"
 
-#include <QTextStream>
-#include <QFileDialog>
-
-#include <KLocalizedString>
-#include <KMessageBox>
-
-#include "kstars.h"
 #include "dms.h"
-#include "skyobjects/skypoint.h"
-#include "skyobjects/skyobject.h"
+#include "kstars.h"
 #include "kstarsdatetime.h"
 #include "dialogs/finddialog.h"
-#include "widgets/dmsbox.h"
+#include "skyobjects/skypoint.h"
+#include "skyobjects/skyobject.h"
+
+#include <KMessageBox>
+
+#include <QTextStream>
+#include <QFileDialog>
+#include <QPointer>
 
 modCalcApCoord::modCalcApCoord(QWidget *parentSplit) : QFrame(parentSplit)
 {
@@ -42,8 +41,8 @@ modCalcApCoord::modCalcApCoord(QWidget *parentSplit) : QFrame(parentSplit)
     connect(NowButton, SIGNAL(clicked()), this, SLOT(showCurrentTime()));
     connect(RACat, SIGNAL(editingFinished()), this, SLOT(slotCompute()));
     connect(DecCat, SIGNAL(editingFinished()), this, SLOT(slotCompute()));
-    connect(UT, SIGNAL(timeChanged(const QTime &)), this, SLOT(slotCompute()));
-    connect(Date, SIGNAL(dateChanged(const QDate &)), this, SLOT(slotCompute()));
+    connect(UT, SIGNAL(timeChanged(QTime)), this, SLOT(slotCompute()));
+    connect(Date, SIGNAL(dateChanged(QDate)), this, SLOT(slotCompute()));
 
     connect(utCheckBatch, SIGNAL(clicked()), this, SLOT(slotUtCheckedBatch()));
     connect(dateCheckBatch, SIGNAL(clicked()), this, SLOT(slotDateCheckedBatch()));
@@ -53,10 +52,6 @@ modCalcApCoord::modCalcApCoord(QWidget *parentSplit) : QFrame(parentSplit)
     connect(runButtonBatch, SIGNAL(clicked()), this, SLOT(slotRunBatch()));
 
     show();
-}
-
-modCalcApCoord::~modCalcApCoord()
-{
 }
 
 void modCalcApCoord::showCurrentTime(void)

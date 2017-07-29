@@ -17,14 +17,10 @@
 
 #include "starhopper.h"
 
-#include "skyobjects/skyobject.h"
-#include "skyobjects/starobject.h"
-#include "starcomponent.h"
-
 #include "kstarsdata.h"
 #include "ksutils.h"
-
-#include <QList>
+#include "starcomponent.h"
+#include "skyobjects/starobject.h"
 
 QList<StarObject *> *StarHopper::computePath(const SkyPoint &src, const SkyPoint &dest, float fov__, float maglim__,
                                              QStringList *metadata_)
@@ -81,6 +77,9 @@ QList<const StarObject *> StarHopper::computePath_const(const SkyPoint &src, con
                 curr_node = sp;
             }
         }
+        if (curr_node == nullptr)
+            continue;
+
         qDebug() << "Lowest fscore (vertex distance-plus-cost score) is " << lowfscore
                  << " with coords: " << curr_node->ra().toHMSString() << curr_node->dec().toDMSString()
                  << ". Considering this node now.";
@@ -93,7 +92,8 @@ QList<const StarObject *> StarHopper::computePath_const(const SkyPoint &src, con
             // Just a test -- try to print out useful instructions to the debug console. Once we make star hopper unexperimental, we should move this to some sort of a display
             qDebug() << "Star Hopping Directions: ";
             const SkyPoint *prevHop = start;
-            foreach (const StarObject *hopStar, result_path)
+
+            for (auto &hopStar : result_path)
             {
                 QString direction;
                 QString spectralChar = "";
@@ -146,8 +146,6 @@ QList<const StarObject *> StarHopper::computePath_const(const SkyPoint &src, con
             continue;
         }
 
-        SkyPoint const *nhd_node;
-
         // Get the list of stars that are neighbours of this node
         QList<StarObject *> neighbors;
 
@@ -162,7 +160,8 @@ QList<const StarObject *> StarHopper::computePath_const(const SkyPoint &src, con
         qDebug() << "Choosing next node from a set of " << neighbors.count();
         // Look for the potential next node
         double curr_g_score = g_score[curr_node];
-        foreach (nhd_node, neighbors)
+
+        for (auto &nhd_node : neighbors)
         {
             if (cSet.contains(nhd_node))
                 continue;

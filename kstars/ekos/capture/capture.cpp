@@ -7,53 +7,37 @@
     version 2 of the License, or (at your option) any later version.
  */
 
-#include <QFileDialog>
-#include <QDirIterator>
-#include <QStandardPaths>
-
-#include <KMessageBox>
-#include <KDirWatch>
-#include <KLocalizedString>
-#include <KNotifications/KNotification>
-
-#include <basedevice.h>
-#include <lilxml.h>
-
-#include "Options.h"
-
-#include "oal/log.h"
-
-#include "kstars.h"
-#include "skymap.h"
-#include "kstarsdata.h"
-
 #include "capture.h"
-#include "sequencejob.h"
-#include "dslrinfodialog.h"
 
+#include "captureadaptor.h"
+#include "dslrinfodialog.h"
+#include "kstars.h"
+#include "kstarsdata.h"
+#include "Options.h"
+#include "rotatorsettings.h"
+#include "sequencejob.h"
+#include "skymap.h"
+#include "ui_calibrationoptions.h"
+#include "auxiliary/QProgressIndicator.h"
+#include "ekos/ekosmanager.h"
+#include "ekos/auxiliary/darklibrary.h"
+#include "fitsviewer/fitsdata.h"
+#include "fitsviewer/fitsview.h"
 #include "indi/driverinfo.h"
 #include "indi/indifilter.h"
 #include "indi/clientmanager.h"
 
-#include "fitsviewer/fitsviewer.h"
-#include "fitsviewer/fitsview.h"
+#include <basedevice.h>
 
-#include "ekos/auxiliary/darklibrary.h"
-#include "ekos/ekosmanager.h"
-#include "captureadaptor.h"
-#include "ui_calibrationoptions.h"
-
-#include "auxiliary/QProgressIndicator.h"
-#include "rotatorsettings.h"
+#include <KNotifications/KNotification>
 
 #define INVALID_VALUE -1e6
 #define MF_TIMER_TIMEOUT    90000
 #define GD_TIMER_TIMEOUT    60000
 #define MF_RA_DIFF_LIMIT    4
-#define MAX_CAPTURE_RETRIES 3
 
 // Current Sequence File Format:
-#define SQ_FORMAT_VERSION 1.8
+#define SQ_FORMAT_VERSION 1.9
 // We accept file formats with version back to:
 #define SQ_COMPAT_VERSION 1.6
 
@@ -68,58 +52,9 @@ Capture::Capture()
 
     dirPath = QUrl::fromLocalFile(QDir::homePath());
 
-    state      = CAPTURE_IDLE;
-    focusState = FOCUS_IDLE;
-    guideState = GUIDE_IDLE;
-    alignState = ALIGN_IDLE;
-
-    currentCCD       = nullptr;
-    currentTelescope = nullptr;
-    currentFilter    = nullptr;
-    dustCap          = nullptr;
-    lightBox         = nullptr;
-    dome             = nullptr;
-
-    filterSlot = nullptr;
-    filterName = nullptr;
-    activeJob  = nullptr;
-
-    targetChip = nullptr;
-    guideChip  = nullptr;
-
-    targetADU          = 0;
-    targetADUTolerance = 1000;
-    flatFieldDuration  = DURATION_MANUAL;
-    flatFieldSource    = SOURCE_MANUAL;
-    calibrationStage   = CAL_NONE;
-    preMountPark       = false;
-    preDomePark        = false;
-
-    deviationDetected = false;
-    spikeDetected     = false;
-    isBusy            = false;
-
-    ignoreJobProgress = true;
-
-    dustCapLightEnabled = lightBoxLightEnabled = false;
-
     //isAutoGuiding   = false;
-    isAutoFocus              = false;
-    autoFocusStatus          = false;
-    resumeAlignmentAfterFlip = false;
 
-    mDirty                = false;
-    jobUnderEdit          = false;
-    currentFilterPosition = -1;
-
-    //calibrationState  = CALIBRATE_NONE;
-    meridianFlipStage      = MF_NONE;
-    resumeGuidingAfterFlip = false;
-
-    //ADURaw1 = ADURaw2 = ExpRaw1 = ExpRaw2 = -1;
-    //ADUSlope = 0;
-
-    rotatorSettings = new RotatorSettings(this);
+    rotatorSettings.reset(new RotatorSettings(this));
 
     pi = new QProgressIndicator(this);
 
@@ -174,7 +109,7 @@ Capture::Capture()
     connect(frameTypeCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(checkFrameType(int)));
     connect(resetFrameB, SIGNAL(clicked()), this, SLOT(resetFrame()));
     connect(calibrationB, SIGNAL(clicked()), this, SLOT(openCalibrationDialog()));
-    connect(rotatorB, SIGNAL(clicked()), rotatorSettings, SLOT(show()));
+    connect(rotatorB, SIGNAL(clicked()), rotatorSettings.get(), SLOT(show()));
 
     addToQueueB->setIcon(QIcon::fromTheme("list-add", QIcon(":/icons/breeze/default/list-add.svg")));
     addToQueueB->setAttribute(Qt::WA_LayoutUsesWidgetRect);
@@ -207,25 +142,19 @@ Capture::Capture()
 
     fitsDir->setText(Options::fitsDir());
 
-    seqExpose       = 0;
-    seqTotalCount   = 0;
-    seqCurrentCount = 0;
-    seqDelay        = 0;
-    fileHFR         = 0;
-    useGuideHead    = false;
-    firstAutoFocus  = true;
-
-    foreach (QString filter, FITSViewer::filterTypes)
+    for (auto &filter : FITSViewer::filterTypes)
         filterCombo->addItem(filter);
 
     guideDeviationCheck->setChecked(Options::enforceGuideDeviation());
     guideDeviation->setValue(Options::guideDeviation());
     autofocusCheck->setChecked(Options::enforceAutofocus());
+    refocusEveryNCheck->setChecked(Options::enforceRefocusEveryN());
     meridianCheck->setChecked(Options::autoMeridianFlip());
     meridianHours->setValue(Options::autoMeridianHours());
     useFITSViewerInCapture->setChecked(Options::useFITSViewerInCapture());
 
     connect(autofocusCheck, SIGNAL(toggled(bool)), this, SLOT(setDirty()));
+    connect(refocusEveryNCheck, SIGNAL(toggled(bool)), this, SLOT(setDirty()));
     connect(HFRPixels, SIGNAL(valueChanged(double)), this, SLOT(setDirty()));
     connect(guideDeviationCheck, SIGNAL(toggled(bool)), this, SLOT(setDirty()));
     connect(guideDeviation, SIGNAL(valueChanged(double)), this, SLOT(setDirty()));
@@ -253,7 +182,6 @@ Capture::Capture()
 Capture::~Capture()
 {
     qDeleteAll(jobs);
-    delete (rotatorSettings);
 }
 
 void Capture::setDefaultCCD(QString ccd)
@@ -357,6 +285,8 @@ void Capture::start()
     Options::setGuideDeviation(guideDeviation->value());
     Options::setEnforceGuideDeviation(guideDeviationCheck->isChecked());
     Options::setEnforceAutofocus(autofocusCheck->isChecked());
+    Options::setEnforceRefocusEveryN(refocusEveryNCheck->isChecked());
+
     Options::setAutoMeridianFlip(meridianCheck->isChecked());
     Options::setAutoMeridianHours(meridianHours->value());
     Options::setUseFITSViewerInCapture(useFITSViewerInCapture->isChecked());
@@ -422,6 +352,10 @@ void Capture::start()
     initialHA         = getCurrentHA();
     meridianFlipStage = MF_NONE;
 
+
+    // start timer to measure time until next forced refocus
+    startRefocusEveryNTimer();
+
     // Check if we need to update the sequence directory numbers before starting
     /*for (int i=0; i < jobs.count(); i++)
     {
@@ -455,8 +389,6 @@ void Capture::stop(bool abort)
     retries         = 0;
     seqTotalCount   = 0;
     seqCurrentCount = 0;
-    //ADURaw1 = ADURaw2 = ExpRaw1 = ExpRaw2 = -1;
-    //ADUSlope = 0;
     ADURaw.clear();
     ExpRaw.clear();
 
@@ -706,8 +638,8 @@ void Capture::checkCCD(int ccdNum)
         liveVideoB->setEnabled(currentCCD->hasVideoStream());
         setVideoStreamEnabled(currentCCD->isStreamingEnabled());
 
-        connect(currentCCD, SIGNAL(numberUpdated(INumberVectorProperty *)), this,
-                SLOT(processCCDNumber(INumberVectorProperty *)), Qt::UniqueConnection);
+        connect(currentCCD, SIGNAL(numberUpdated(INumberVectorProperty*)), this,
+                SLOT(processCCDNumber(INumberVectorProperty*)), Qt::UniqueConnection);
         connect(currentCCD, SIGNAL(newTemperatureValue(double)), this, SLOT(updateCCDTemperature(double)),
                 Qt::UniqueConnection);
         connect(currentCCD, SIGNAL(newRemoteFile(QString)), this, SLOT(setNewRemoteFile(QString)));
@@ -749,7 +681,6 @@ void Capture::resetFrameToZero()
 
 void Capture::updateFrameProperties(int reset)
 {
-    int x, y, w, h;
     int binx = 1, biny = 1;
     double min, max, step;
     int xstep = 0, ystep = 0;
@@ -908,6 +839,10 @@ void Capture::updateFrameProperties(int reset)
     if (frameSettings.contains(targetChip))
     {
         QVariantMap settings = frameSettings[targetChip];
+        int x = settings["x"].toInt();
+        int y = settings["y"].toInt();
+        int w = settings["w"].toInt();
+        int h = settings["h"].toInt();
 
         if (targetChip->canBin())
         {
@@ -923,11 +858,6 @@ void Capture::updateFrameProperties(int reset)
             binXIN->setValue(1);
             binYIN->setValue(1);
         }
-
-        x = settings["x"].toInt();
-        y = settings["y"].toInt();
-        w = settings["w"].toInt();
-        h = settings["h"].toInt();
 
         if (x >= 0)
             frameXIN->setValue(x);
@@ -1137,11 +1067,9 @@ void Capture::newFITS(IBLOB *bp)
         if (useGuideHead == false && darkSubCheck->isChecked() && activeJob->isPreview())
         {
             FITSView *currentImage = targetChip->getImageView(FITS_NORMAL);
-            FITSData *darkData     = nullptr;
+            FITSData *darkData     = DarkLibrary::Instance()->getDarkFrame(targetChip, activeJob->getExposure());
             uint16_t offsetX       = activeJob->getSubX() / activeJob->getXBin();
             uint16_t offsetY       = activeJob->getSubY() / activeJob->getYBin();
-
-            darkData = DarkLibrary::Instance()->getDarkFrame(targetChip, activeJob->getExposure());
 
             connect(DarkLibrary::Instance(), SIGNAL(darkFrameCompleted(bool)), this, SLOT(setCaptureComplete()));
             connect(DarkLibrary::Instance(), SIGNAL(newLog(QString)), this, SLOT(appendLogText(QString)));
@@ -1313,6 +1241,16 @@ bool Capture::resumeSequence()
             HFRPixels->setValue(fileHFR);
         }
 
+        // check if time for forced refocus
+
+	if (Options::captureLogging())
+	  qDebug() << "Elapsed Time (secs): " << getRefocusEveryNTimerElapsedSec() << " Requested Interval (secs): " << refocusEveryN->value()*60;
+
+        if (refocusEveryNCheck->isEnabled() && refocusEveryNCheck->isChecked() && getRefocusEveryNTimerElapsedSec() >= refocusEveryN->value()*60)
+            isRefocus = true;
+        else
+            isRefocus = false;
+
         // If we suspended guiding due to primary chip download, resume guide chip guiding now
         if (guideState == GUIDE_SUSPENDED && suspendGuideOnDownload)
             emit resumeGuiding();
@@ -1326,6 +1264,18 @@ bool Capture::resumeSequence()
 
             state = CAPTURE_DITHERING;
             emit newStatus(Ekos::CAPTURE_DITHERING);
+        }
+        else if (isRefocus && activeJob->getFrameType() == FRAME_LIGHT)
+        {
+            appendLogText(i18n("Scheduled refocus started..."));
+
+            secondsLabel->setText(i18n("Focusing..."));
+
+            // force refocus
+            emit checkFocus(0.1);
+
+            state = CAPTURE_FOCUSING;
+            emit newStatus(Ekos::CAPTURE_FOCUSING);
         }
         else if (isAutoFocus && activeJob->getFrameType() == FRAME_LIGHT)
         {
@@ -1400,8 +1350,8 @@ void Capture::captureImage()
         activeJob->setCurrentTemperature(temperature);
     }
 
-    connect(currentCCD, SIGNAL(BLOBUpdated(IBLOB *)), this, SLOT(newFITS(IBLOB *)), Qt::UniqueConnection);
-    connect(currentCCD, SIGNAL(newImage(QImage *, ISD::CCDChip *)), this, SLOT(sendNewImage(QImage *, ISD::CCDChip *)),
+    connect(currentCCD, SIGNAL(BLOBUpdated(IBLOB*)), this, SLOT(newFITS(IBLOB*)), Qt::UniqueConnection);
+    connect(currentCCD, SIGNAL(newImage(QImage*,ISD::CCDChip*)), this, SLOT(sendNewImage(QImage*,ISD::CCDChip*)),
             Qt::UniqueConnection);
 
     if (activeJob->getFrameType() == FRAME_FLAT)
@@ -1460,8 +1410,8 @@ void Capture::captureImage()
     switch (rc)
     {
         case SequenceJob::CAPTURE_OK:
-            connect(currentCCD, SIGNAL(newExposureValue(ISD::CCDChip *, double, IPState)), this,
-                    SLOT(setExposureProgress(ISD::CCDChip *, double, IPState)), Qt::UniqueConnection);
+            connect(currentCCD, SIGNAL(newExposureValue(ISD::CCDChip*,double,IPState)), this,
+                    SLOT(setExposureProgress(ISD::CCDChip*,double,IPState)), Qt::UniqueConnection);
             appendLogText(i18n("Capturing image..."));
             break;
 
@@ -1499,10 +1449,22 @@ bool Capture::resumeCapture()
 
     appendLogText(i18n("Dither complete."));
 
+    // FIXME ought to be able to combine these - only different is value passed
+    //       to checkFocus()
     if (isAutoFocus && autoFocusStatus == false)
     {
         secondsLabel->setText(i18n("Focusing..."));
         emit checkFocus(HFRPixels->value());
+        state = CAPTURE_FOCUSING;
+        emit newStatus(Ekos::CAPTURE_FOCUSING);
+        return true;
+    }
+    else if (isRefocus)
+    {
+        appendLogText(i18n("Scheduled refocus started..."));
+
+        secondsLabel->setText(i18n("Focusing..."));
+        emit checkFocus(0.1);
         state = CAPTURE_FOCUSING;
         emit newStatus(Ekos::CAPTURE_FOCUSING);
         return true;
@@ -1562,7 +1524,7 @@ void Capture::checkSeqBoundary(const QString &path)
         {
             bool indexOK = false;
 
-            newFileIndex = tempName.mid(lastUnderScoreIndex + 1).toInt(&indexOK);
+            newFileIndex = tempName.midRef(lastUnderScoreIndex + 1).toInt(&indexOK);
             if (indexOK && newFileIndex >= nextSequenceID)
                 nextSequenceID = newFileIndex + 1;
         }
@@ -1624,7 +1586,7 @@ void Capture::setExposureProgress(ISD::CCDChip *tChip, double value, IPState sta
 
     //qDebug() << "Exposure with value " << value;
 
-    if (state == IPS_OK)
+    if (activeJob != nullptr && state == IPS_OK)
     {
         activeJob->setCaptureRetires(0);
         activeJob->setExposeLeft(0);
@@ -2059,6 +2021,15 @@ void Capture::prepareJob(SequenceJob *job)
             calibrationStage = CAL_NONE;
     }
 
+    // If we haven't performed a single autofocus yet, we stop
+    if (!job->isPreview() && Options::enforceRefocusEveryN() && (isAutoFocus == false && firstAutoFocus == true))
+    {
+        appendLogText(i18n(
+            "Manual scheduled focusing is not supported. Run Autofocus process before trying again."));
+        abort();
+        return;
+    }
+
     if (currentFilterPosition > 0)
     {
         // If we haven't performed a single autofocus yet, we stop
@@ -2371,8 +2342,14 @@ void Capture::setFocusStatus(FocusState state)
 
     if (focusState == FOCUS_COMPLETE)
     {
+        // enable option to have a refocus event occur if HFR goes over threshold
         autofocusCheck->setEnabled(true);
         HFRPixels->setEnabled(true);
+
+        // also set scheduled refocus enabled
+        refocusEveryNCheck->setEnabled(true);
+        refocusEveryN->setEnabled(true);
+
         if (focusHFR > 0 && firstAutoFocus && HFRPixels->value() == 0 && fileHFR == 0)
         {
             firstAutoFocus = false;
@@ -2380,6 +2357,9 @@ void Capture::setFocusStatus(FocusState state)
             // in case in-sequence-focusing is used.
             HFRPixels->setValue(focusHFR + (focusHFR * (Options::hFRThresholdPercentage() / 100.0)));
         }
+
+        // successful focus so reset elapsed time
+        restartRefocusEveryNTimer();
     }
 
     if (activeJob &&
@@ -2401,7 +2381,7 @@ void Capture::setFocusStatus(FocusState state)
         return;
     }
 
-    if (isAutoFocus && activeJob && activeJob->getStatus() == SequenceJob::JOB_BUSY)
+    if ((isRefocus || isAutoFocus) && activeJob && activeJob->getStatus() == SequenceJob::JOB_BUSY)
     {
         if (focusState == FOCUS_COMPLETE)
         {
@@ -2434,8 +2414,8 @@ void Capture::setTelescope(ISD::GDInterface *newTelescope)
 {
     currentTelescope = static_cast<ISD::Telescope *>(newTelescope);
 
-    connect(currentTelescope, SIGNAL(numberUpdated(INumberVectorProperty *)), this,
-            SLOT(processTelescopeNumber(INumberVectorProperty *)), Qt::UniqueConnection);
+    connect(currentTelescope, SIGNAL(numberUpdated(INumberVectorProperty*)), this,
+            SLOT(processTelescopeNumber(INumberVectorProperty*)), Qt::UniqueConnection);
 
     meridianCheck->setEnabled(true);
     meridianHours->setEnabled(true);
@@ -2563,6 +2543,23 @@ bool Capture::loadSequenceQueue(const QString &fileURL)
                     }
                     else
                         autofocusCheck->setChecked(false);
+                }
+                else if (!strcmp(tagXMLEle(ep), "RefocusEveryN"))
+                {
+                    if (!strcmp(findXMLAttValu(ep, "enabled"), "true"))
+                    {
+                        refocusEveryNCheck->setChecked(true);
+                        int minutesValue = atof(pcdataXMLEle(ep));
+                        if (minutesValue > 0)
+                        {
+                            refocusEveryNMinutesValue = minutesValue;
+                            refocusEveryN->setValue(refocusEveryNMinutesValue);
+                        }
+                        else
+                            refocusEveryNMinutesValue = 0;
+                    }
+                    else
+                        refocusEveryNCheck->setChecked(false);
                 }
                 else if (!strcmp(tagXMLEle(ep), "MeridianFlip"))
                 {
@@ -2794,7 +2791,7 @@ void Capture::saveSequenceQueue()
 {
     QUrl backupCurrent = sequenceURL;
 
-    if (sequenceURL.toLocalFile().startsWith("/tmp/") || sequenceURL.toLocalFile().contains("/Temp"))
+    if (sequenceURL.toLocalFile().startsWith(QLatin1String("/tmp/")) || sequenceURL.toLocalFile().contains("/Temp"))
         sequenceURL.clear();
 
     // If no changes made, return.
@@ -2814,7 +2811,7 @@ void Capture::saveSequenceQueue()
 
         dirPath = QUrl(sequenceURL.url(QUrl::RemoveFilename));
 
-        if (sequenceURL.toLocalFile().endsWith(".esq") == false)
+        if (sequenceURL.toLocalFile().endsWith(QLatin1String(".esq")) == false)
             sequenceURL.setPath(sequenceURL.toLocalFile() + ".esq");
 
         if (QFile::exists(sequenceURL.toLocalFile()))
@@ -2880,6 +2877,8 @@ bool Capture::saveSequenceQueue(const QString &path)
               << guideDeviation->value() << "</GuideDeviation>" << endl;
     outstream << "<Autofocus enabled='" << (autofocusCheck->isChecked() ? "true" : "false") << "'>"
               << HFRPixels->value() << "</Autofocus>" << endl;
+    outstream << "<RefocusEveryN enabled='" << (refocusEveryNCheck->isChecked() ? "true" : "false") << "'>"
+              << refocusEveryN->value() << "</RefocusEveryN>" << endl;
     outstream << "<MeridianFlip enabled='" << (meridianCheck->isChecked() ? "true" : "false") << "'>"
               << meridianHours->value() << "</MeridianFlip>" << endl;
     foreach (SequenceJob *job, jobs)
@@ -3675,13 +3674,13 @@ double Capture::setCurrentADU(double value)
                  << " Exposure Count: " << ExpRaw.count();
 
     // Most CCDs are quite linear so 1st degree polynomial is quite sufficient
-    // But DSLRs can exhibit non-linear response curve and so a 2nd degree polynomial is more appropiate
+    // But DSLRs can exhibit non-linear response curve and so a 2nd degree polynomial is more appropriate
     if (ExpRaw.count() >= 2)
     {
-        double chisq = 0;
-
         if (ExpRaw.count() >= 4)
         {
+            double chisq = 0;
+
             coeff = gsl_polynomial_fit(ADURaw.data(), ExpRaw.data(), ExpRaw.count(), 2, chisq);
             if (Options::captureLogging())
             {
@@ -4500,8 +4499,8 @@ void Capture::showObserverDialog()
     QList<OAL::Observer *> m_observerList;
     KStars::Instance()->data()->userdb()->GetAllObservers(m_observerList);
     QStringList observers;
-    foreach (OAL::Observer *o, m_observerList)
-        observers << QString("%1 %2").arg(o->name()).arg(o->surname());
+    for (auto &o : m_observerList)
+        observers << QString("%1 %2").arg(o->name(), o->surname());
 
     QDialog observersDialog(this);
     observersDialog.setWindowTitle(i18n("Select Current Observer"));
@@ -4525,8 +4524,8 @@ void Capture::showObserverDialog()
         QList<OAL::Observer *> m_observerList;
         KStars::Instance()->data()->userdb()->GetAllObservers(m_observerList);
         QStringList observers;
-        foreach (OAL::Observer *o, m_observerList)
-            observers << QString("%1 %2").arg(o->name()).arg(o->surname());
+        for (auto &o : m_observerList)
+            observers << QString("%1 %2").arg(o->name(), o->surname());
 
         observerCombo.clear();
         observerCombo.addItems(observers);
@@ -4546,5 +4545,21 @@ void Capture::showObserverDialog()
     observerName = observerCombo.currentText();
 
     Options::setDefaultObserver(observerName);
+}
+
+
+void Capture::startRefocusEveryNTimer()
+{
+    refocusEveryNTimer.restart();
+}
+
+void Capture::restartRefocusEveryNTimer()
+{
+    refocusEveryNTimer.restart();
+}
+
+int Capture::getRefocusEveryNTimerElapsedSec()
+{
+    return refocusEveryNTimer.elapsed()/1000;
 }
 }

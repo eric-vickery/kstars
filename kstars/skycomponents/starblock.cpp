@@ -64,11 +64,10 @@ void StarBlock::reset()
 
 StarBlock::~StarBlock()
 {
-    if (parent)
-        parent->releaseBlock(this);
 }
+
 #ifdef KSTARS_LITE
-StarNode *StarBlock::addStar(const starData &data)
+StarNode *StarBlock::addStar(const StarData &data)
 {
     if (isFull())
         return 0;
@@ -83,7 +82,7 @@ StarNode *StarBlock::addStar(const starData &data)
     return &node;
 }
 
-StarNode *StarBlock::addStar(const deepStarData &data)
+StarNode *StarBlock::addStar(const DeepStarData &data)
 {
     if (isFull())
         return 0;
@@ -98,7 +97,7 @@ StarNode *StarBlock::addStar(const deepStarData &data)
     return &node;
 }
 #else
-StarObject *StarBlock::addStar(const starData &data)
+StarObject *StarBlock::addStar(const StarData &data)
 {
     if (isFull())
         return 0;
@@ -112,7 +111,7 @@ StarObject *StarBlock::addStar(const starData &data)
     return &star;
 }
 
-StarObject *StarBlock::addStar(const deepStarData &data)
+StarObject *StarBlock::addStar(const DeepStarData &data)
 {
     if (isFull())
         return 0;

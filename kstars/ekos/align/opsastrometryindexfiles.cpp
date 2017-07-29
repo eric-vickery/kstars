@@ -1,16 +1,14 @@
+
 #include "opsastrometryindexfiles.h"
-#include "ui_opsastrometryindexfiles.h"
 
-#include <QProgressBar>
-#include <KConfigDialog>
-#include <KMessageBox>
-
-#include "kstars.h"
 #include "align.h"
+#include "kstars.h"
 #include "Options.h"
 
 #include <kauthaction.h>
 #include <kauthexecutejob.h>
+#include <KConfigDialog>
+#include <KMessageBox>
 
 namespace Ekos
 {
@@ -48,14 +46,14 @@ OpsAstrometryIndexFiles::OpsAstrometryIndexFiles(Align *parent) : QDialog(KStars
 
     QList<QCheckBox *> checkboxes = findChildren<QCheckBox *>();
 
-    foreach (QCheckBox *checkBox, checkboxes)
+    for (auto &checkBox : checkboxes)
     {
         connect(checkBox, SIGNAL(clicked(bool)), this, SLOT(downloadOrDeleteIndexFiles(bool)));
     }
 
     QList<QProgressBar *> progressBars = findChildren<QProgressBar *>();
 
-    foreach (QProgressBar *bar, progressBars)
+    for (auto &bar : progressBars)
     {
         bar->setVisible(false);
     }
@@ -79,7 +77,7 @@ void OpsAstrometryIndexFiles::slotUpdate()
 
     double fov_check = qMax(fov_w, fov_h);
 
-    FOVOut->setText(QString("%1' x %2'").arg(QString::number(fov_w, 'f', 2)).arg(QString::number(fov_h, 'f', 2)));
+    FOVOut->setText(QString("%1' x %2'").arg(QString::number(fov_w, 'f', 2), QString::number(fov_h, 'f', 2)));
 
     QString astrometryDataDir;
 
@@ -92,9 +90,9 @@ void OpsAstrometryIndexFiles::slotUpdate()
     QDir directory(astrometryDataDir);
     QStringList indexList = directory.entryList(nameFilter);
 
-    foreach (QString indexName, indexList)
+    for (auto &indexName : indexList)
     {
-        indexName                = indexName.replace("-", "_").left(10);
+        indexName                = indexName.replace('-', '_').left(10);
         QCheckBox *indexCheckBox = findChild<QCheckBox *>(indexName);
         if (indexCheckBox)
             indexCheckBox->setChecked(true);
@@ -102,14 +100,15 @@ void OpsAstrometryIndexFiles::slotUpdate()
 
     QList<QCheckBox *> checkboxes = findChildren<QCheckBox *>();
 
-    foreach (QCheckBox *checkBox, checkboxes)
+    for (auto &checkBox : checkboxes)
     {
         checkBox->setIcon(QIcon(":/icons/breeze/default/security-low.svg"));
         checkBox->setToolTip(i18n("Optional"));
     }
 
     float last_skymarksize = 2;
-    foreach (float skymarksize, astrometryIndex.keys())
+
+    for (auto &skymarksize : astrometryIndex.keys())
     {
         if ((skymarksize >= 0.40 * fov_check && skymarksize <= 0.9 * fov_check) ||
             (fov_check > last_skymarksize && fov_check < skymarksize))
@@ -184,11 +183,11 @@ bool OpsAstrometryIndexFiles::getAstrometryDataDir(QString &dataDir)
     while (!in.atEnd())
     {
         line = in.readLine();
-        if (line.isEmpty() || line.startsWith("#"))
+        if (line.isEmpty() || line.startsWith('#'))
             continue;
 
         line = line.trimmed();
-        if (line.startsWith("add_path"))
+        if (line.startsWith(QLatin1String("add_path")))
         {
             dataDir = line.mid(9).trimmed();
             return true;
@@ -221,21 +220,22 @@ bool OpsAstrometryIndexFiles::astrometryIndicesAreAvailable()
     return wasSuccessful;
 }
 
-void OpsAstrometryIndexFiles::downloadIndexFile(QString URL, QString fileN, QCheckBox *checkBox, int currentIndex,
-                                                int maxIndex)
+void OpsAstrometryIndexFiles::downloadIndexFile(const QString &URL, const QString &fileN, QCheckBox *checkBox,
+                                                int currentIndex, int maxIndex)
 {
     QString indexString = QString::number(currentIndex);
     if (currentIndex < 10)
-        indexString = "0" + indexString;
+        indexString = '0' + indexString;
 
-    QString indexSeriesName = checkBox->text().remove("&");
+    QString indexSeriesName = checkBox->text().remove('&');
     QProgressBar *indexDownloadProgress =
-        findChild<QProgressBar *>(indexSeriesName.replace("-", "_").left(10) + "_progress");
-    if (indexDownloadProgress)
-        indexDownloadProgress->setValue((int)(currentIndex * 100 / maxIndex));
+        findChild<QProgressBar *>(indexSeriesName.replace('-', '_').left(10) + "_progress");
+    if (indexDownloadProgress && maxIndex > 0)
+        indexDownloadProgress->setValue(currentIndex*100 / maxIndex);
 
     QString indexURL = URL;
-    indexURL.replace("*", indexString);
+
+    indexURL.replace('*', indexString);
 
     QNetworkReply *response = manager->get(QNetworkRequest(QUrl(indexURL)));
 
@@ -253,9 +253,11 @@ void OpsAstrometryIndexFiles::downloadIndexFile(QString URL, QString fileN, QChe
                 response->deleteLater();
                 if (response->error() != QNetworkReply::NoError)
                     return;
+
                 QByteArray responseData = response->readAll();
                 QString indexFileN      = fileN;
-                indexFileN.replace("*", indexString);
+
+                indexFileN.replace('*', indexString);
 
                 QFile file(indexFileN);
                 if (QFileInfo(QFileInfo(file).path()).isWritable())
@@ -314,12 +316,13 @@ void OpsAstrometryIndexFiles::downloadOrDeleteIndexFiles(bool checked)
 
     if (checkBox)
     {
-        QString indexSetName                = checkBox->text().remove("&");
+        QString indexSetName                = checkBox->text().remove('&');
         QString progressBarName             = indexSetName;
-        progressBarName                     = progressBarName.replace("-", "_").left(10) + "_progress";
+        progressBarName                     = progressBarName.replace('-', '_').left(10) + "_progress";
         QProgressBar *indexDownloadProgress = findChild<QProgressBar *>(progressBarName);
-        QString filePath                    = astrometryDataDir + "/" + indexSetName;
-        int indexFileNum                    = indexSetName.mid(8, 2).toInt();
+        QString filePath                    = astrometryDataDir + '/' + indexSetName;
+        int indexFileNum                    = indexSetName.midRef(8, 2).toInt();
+
         if (checked)
         {
             checkBox->setChecked(!checked);
@@ -329,9 +332,9 @@ void OpsAstrometryIndexFiles::downloadOrDeleteIndexFiles(bool checked)
                     indexDownloadProgress->setVisible(true);
                 checkBox->setEnabled(false);
                 QString URL;
-                if (indexSetName.startsWith("index-41"))
+                if (indexSetName.startsWith(QLatin1String("index-41")))
                     URL = "http://broiler.astrometry.net/~dstn/4100/" + indexSetName;
-                else if (indexSetName.startsWith("index-42"))
+                else if (indexSetName.startsWith(QLatin1String("index-42")))
                     URL = "http://broiler.astrometry.net/~dstn/4200/" + indexSetName;
                 int maxIndex = 0;
                 if (indexFileNum < 8 && URL.contains("*"))
@@ -359,7 +362,7 @@ void OpsAstrometryIndexFiles::downloadOrDeleteIndexFiles(bool checked)
                     QStringList nameFilter("*.fits");
                     QDir directory(astrometryDataDir);
                     QStringList indexList = directory.entryList(nameFilter);
-                    foreach (QString fileName, indexList)
+                    for (auto &fileName : indexList)
                     {
                         if (fileName.contains(indexSetName.left(10)))
                         {

@@ -7,20 +7,17 @@
     version 2 of the License, or (at your option) any later version.
  */
 
-#include <QEventLoop>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <QNetworkRequest>
-#include <QJsonObject>
-#include <QJsonArray>
-#include <QJsonValue>
-#include <QJsonDocument>
-
 #include "indiwebmanager.h"
-#include "profileinfo.h"
-#include "Options.h"
-#include "drivermanager.h"
+
 #include "driverinfo.h"
+#include "drivermanager.h"
+#include "Options.h"
+#include "profileinfo.h"
+
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkReply>
 
 namespace INDI
 {
@@ -140,7 +137,7 @@ bool areDriversRunning(ProfileInfo *pi)
         if (array.count() < piExecDrivers.count())
             return false;
 
-        foreach (QJsonValue value, array)
+        for (auto value : array)
         {
             QJsonObject obj = value.toObject();
 

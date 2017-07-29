@@ -33,6 +33,9 @@
 #include "horizontalcoordinategrid.h"
 #include "ksasteroid.h"
 #include "kscomet.h"
+#ifndef KSTARS_LITE
+#include "kstars.h"
+#endif
 #include "kstarsdata.h"
 #include "milkyway.h"
 #include "satellitescomponent.h"
@@ -169,7 +172,7 @@ SkyMapComposite::SkyMapComposite(SkyComposite *parent) : SkyComposite(parent), m
     addComponent(m_Satellites = new SatellitesComponent(this), 7);
     addComponent(m_Supernovae = new SupernovaeComponent(this), 7);
 #endif
-    connect(this, SIGNAL(progressText(const QString &)), KStarsData::Instance(), SIGNAL(progressText(const QString &)));
+    connect(this, SIGNAL(progressText(QString)), KStarsData::Instance(), SIGNAL(progressText(QString)));
 }
 
 SkyMapComposite::~SkyMapComposite()
@@ -291,8 +294,9 @@ void SkyMapComposite::draw(SkyPainter *skyp)
     if (KStars::Instance())
     {
         auto &obsList = KStarsData::Instance()->observingList()->sessionList();
+
         if (Options::obsListText())
-            foreach (QSharedPointer<SkyObject> obj_clone, obsList)
+            for (auto &obj_clone : obsList)
             {
                 // Find the "original" obj
                 SkyObject *o = findByName(obj_clone->name()); // FIXME: This is sloww.... and can also fail!!!
@@ -348,12 +352,12 @@ void SkyMapComposite::draw(SkyPainter *skyp)
 
     m_ObservingList->pen = QPen(QColor(data->colorScheme()->colorNamed("ObsListColor")), 1.);
     if (KStars::Instance() && !m_ObservingList->list)
-        m_ObservingList->list = new SkyObjectList(KSUtils::makeVanillaPointerList(
+        m_ObservingList->list.reset(new SkyObjectList(KSUtils::makeVanillaPointerList(
             KStarsData::Instance()
                 ->observingList()
-                ->sessionList())); // Make sure we never delete the pointers in m_ObservingList->list!
-    if (m_ObservingList)
-        m_ObservingList->draw(skyp);
+                ->sessionList()))); // Make sure we never delete the pointers in m_ObservingList->list!
+
+    m_ObservingList->draw(skyp);
 
     m_Flags->draw(skyp);
 
@@ -573,6 +577,11 @@ QList<SkyObject *> SkyMapComposite::findObjectsInArea(const SkyPoint &p1, const 
 
 SkyObject *SkyMapComposite::findByName(const QString &name)
 {
+#ifndef KSTARS_LITE
+    if (KStars::Closing)
+        return nullptr;
+#endif
+
     //We search the children in an "intelligent" order (most-used
     //object types first), in order to avoid wasting too much time
     //looking for a match.  The most important part of this ordering

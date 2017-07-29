@@ -9,6 +9,7 @@
 
 #include "horizonmanager.h"
 
+#include "kstars.h"
 #include "kstarsdata.h"
 #include "linelist.h"
 #include "Options.h"
@@ -68,7 +69,7 @@ HorizonManager::HorizonManager(QWidget *w) : QDialog(w)
     m_RegionsModel->setHorizontalHeaderLabels(QStringList()
                                               << i18n("Region") << i18nc("Azimuth", "Az") << i18nc("Altitude", "Alt"));
 
-    connect(m_RegionsModel, SIGNAL(itemChanged(QStandardItem *)), this, SLOT(checkRegionState(QStandardItem *)));
+    connect(m_RegionsModel, SIGNAL(itemChanged(QStandardItem*)), this, SLOT(checkRegionState(QStandardItem*)));
 
     ui->regionsList->setModel(m_RegionsModel);
 
@@ -82,7 +83,7 @@ HorizonManager::HorizonManager(QWidget *w) : QDialog(w)
     // Get the list
     m_HorizonList = horizonComponent->horizonList();
 
-    foreach (ArtificialHorizonEntity *horizon, *m_HorizonList)
+    for (auto &horizon : *m_HorizonList)
     {
         QStandardItem *regionItem = new QStandardItem(horizon->region());
         regionItem->setCheckable(true);
@@ -90,7 +91,8 @@ HorizonManager::HorizonManager(QWidget *w) : QDialog(w)
         m_RegionsModel->appendRow(regionItem);
 
         SkyList *points = horizon->list()->points();
-        foreach (auto& p, *points)
+
+        for (auto& p : *points)
         {
             QList<QStandardItem *> pointsList;
             pointsList << new QStandardItem("") << new QStandardItem(p->az().toDMSString())
@@ -101,7 +103,7 @@ HorizonManager::HorizonManager(QWidget *w) : QDialog(w)
 
     ui->removeRegionB->setEnabled(true);
 
-    connect(m_RegionsModel, SIGNAL(itemChanged(QStandardItem *)), this, SLOT(verifyItemValue(QStandardItem *)));
+    connect(m_RegionsModel, SIGNAL(itemChanged(QStandardItem*)), this, SLOT(verifyItemValue(QStandardItem*)));
 
     //Connect buttons
     connect(ui->addRegionB, SIGNAL(clicked()), this, SLOT(slotAddRegion()));
@@ -316,10 +318,10 @@ void HorizonManager::processSkyPoint(QStandardItem *item, int row)
     // First & Last points always have altitude of zero
     if ((row == 0 && alt.Degrees() != 0) || (alt.Degrees() < 0))
     {
-        disconnect(m_RegionsModel, SIGNAL(itemChanged(QStandardItem *)), this, SLOT(verifyItemValue(QStandardItem *)));
+        disconnect(m_RegionsModel, SIGNAL(itemChanged(QStandardItem*)), this, SLOT(verifyItemValue(QStandardItem*)));
         altItem->setData(QVariant(0), Qt::DisplayRole);
         alt.setD(0);
-        connect(m_RegionsModel, SIGNAL(itemChanged(QStandardItem *)), this, SLOT(verifyItemValue(QStandardItem *)));
+        connect(m_RegionsModel, SIGNAL(itemChanged(QStandardItem*)), this, SLOT(verifyItemValue(QStandardItem*)));
     }
 
     std::shared_ptr<SkyPoint> point;
@@ -386,11 +388,11 @@ void HorizonManager::processSkyPoint(QStandardItem *item, int row)
             point->setAz(firstAz.Degrees());
             point->setAlt(0);
 
-            disconnect(m_RegionsModel, SIGNAL(itemChanged(QStandardItem *)), this,
-                       SLOT(verifyItemValue(QStandardItem *)));
+            disconnect(m_RegionsModel, SIGNAL(itemChanged(QStandardItem*)), this,
+                       SLOT(verifyItemValue(QStandardItem*)));
             azItem->setData(firstAz.toDMSString(), Qt::DisplayRole);
             altItem->setData(QVariant(0), Qt::DisplayRole);
-            connect(m_RegionsModel, SIGNAL(itemChanged(QStandardItem *)), this, SLOT(verifyItemValue(QStandardItem *)));
+            connect(m_RegionsModel, SIGNAL(itemChanged(QStandardItem*)), this, SLOT(verifyItemValue(QStandardItem*)));
 
             setPointSelection(false);
 

@@ -7,17 +7,13 @@
     version 2 of the License, or (at your option) any later version.
 */
 
-#include <QDir>
-#include <QFileInfo>
-
-#include <KMessageBox>
-#include <KLocalizedString>
-#include "Options.h"
-
-#include "auxiliary/kspaths.h"
 #include "offlineastrometryparser.h"
+
 #include "align.h"
 #include "ksutils.h"
+#include "Options.h"
+
+#include <KMessageBox>
 
 namespace Ekos
 {
@@ -43,8 +39,6 @@ OfflineAstrometryParser::OfflineAstrometryParser() : AstrometryParser()
     astrometryIndex[1000] = "index-4217";
     astrometryIndex[1400] = "index-4218";
     astrometryIndex[2000] = "index-4219";
-
-    astrometryFilesOK = false;
 }
 
 OfflineAstrometryParser::~OfflineAstrometryParser()
@@ -222,11 +216,11 @@ bool OfflineAstrometryParser::getAstrometryDataDir(QString &dataDir)
     while (!in.atEnd())
     {
         line = in.readLine();
-        if (line.isEmpty() || line.startsWith("#"))
+        if (line.isEmpty() || line.startsWith('#'))
             continue;
 
         line = line.trimmed();
-        if (line.startsWith("add_path"))
+        if (line.startsWith(QLatin1String("add_path")))
         {
             dataDir = line.mid(9).trimmed();
             return true;
@@ -297,7 +291,8 @@ bool OfflineAstrometryParser::startSovler(const QString &filename, const QString
 
     if (Options::astrometrySolverVerbose())
     {
-        QString command = solverPath + " " + solverArgs.join(" ");
+        QString command = solverPath + ' ' + solverArgs.join(' ');
+
         align->appendLogText(command);
     }
 
@@ -359,9 +354,9 @@ void OfflineAstrometryParser::wcsinfoComplete(int exist_status)
 
     double ra = 0, dec = 0, orientation = 0, pixscale = 0;
 
-    foreach (QString key, wcskeys)
+    for (auto &key : wcskeys)
     {
-        key_value = key.split(" ");
+        key_value = key.split(' ');
 
         if (key_value.size() > 1)
         {

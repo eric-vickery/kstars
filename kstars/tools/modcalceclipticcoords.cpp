@@ -39,11 +39,11 @@ modCalcEclCoords::modCalcEclCoords(QWidget *parentSplit) : QFrame(parentSplit)
 
     //Initialize Date/Time and Location data
     DateTime->setDateTime(KStarsData::Instance()->lt());
-    kdt = DateTime->dateTime();
+    kdt = KStarsDateTime(DateTime->dateTime());
 
     connect(NowButton, SIGNAL(clicked()), this, SLOT(slotNow()));
     connect(ObjectButton, SIGNAL(clicked()), this, SLOT(slotObject()));
-    connect(DateTime, SIGNAL(dateTimeChanged(const QDateTime &)), this, SLOT(slotDateTimeChanged(const QDateTime &)));
+    connect(DateTime, SIGNAL(dateTimeChanged(QDateTime)), this, SLOT(slotDateTimeChanged(QDateTime)));
 
     connect(RA, SIGNAL(editingFinished()), this, SLOT(slotCompute()));
     connect(Dec, SIGNAL(editingFinished()), this, SLOT(slotCompute()));

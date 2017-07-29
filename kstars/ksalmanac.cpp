@@ -18,18 +18,11 @@
 
 #include "ksalmanac.h"
 
-#include <cmath>
-
 #include "geolocation.h"
-#include "kstarsdata.h"
-#include "kstarsdatetime.h"
 #include "ksnumbers.h"
-#include "dms.h"
-#include "skyobjects/kssun.h"
-#include "skyobjects/ksmoon.h"
-#include "skyobjects/skyobject.h"
+#include "kstarsdata.h"
 
-KSAlmanac::KSAlmanac() : SunRise(0), SunSet(0), MoonRise(0), MoonSet(0)
+KSAlmanac::KSAlmanac()
 {
     KStarsData *data = KStarsData::Instance();
 
@@ -41,7 +34,7 @@ KSAlmanac::KSAlmanac() : SunRise(0), SunSet(0), MoonRise(0), MoonSet(0)
     // Jasem 2015-08-24 Do NOT use KStarsDataTime for local time, it is only for UTC
     QDateTime midnight = QDateTime(data->lt().date(), QTime());
     geo                = data->geo();
-    dt                 = geo->LTtoUT(midnight);
+    dt                 = geo->LTtoUT(KStarsDateTime(midnight));
     update();
 }
 
@@ -122,7 +115,8 @@ void KSAlmanac::findDawnDusk()
         if (!asc && last_alt >= -18.0 && alt <= -18.0)
             dusk = h;
 
-        last_h   = h;
+        // Never used
+//        last_h   = h;
         last_alt = alt;
     }
 

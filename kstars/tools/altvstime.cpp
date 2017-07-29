@@ -17,15 +17,7 @@
 
 #include "altvstime.h"
 
-#include <QVBoxLayout>
-#include <QFrame>
-
-#include <KLocalizedString>
-#include <QDialog>
-#include <QPainter>
-#include <QtPrintSupport/QPrinter>
-#include <QtPrintSupport/QPrintDialog>
-
+#include "avtplotwidget.h"
 #include "dms.h"
 #include "ksalmanac.h"
 #include "kstarsdata.h"
@@ -40,9 +32,15 @@
 #include "skyobjects/skyobject.h"
 #include "skyobjects/starobject.h"
 
+#include <KLocalizedString>
 #include <kplotwidget.h>
-#include "avtplotwidget.h"
-#include "ui_altvstime.h"
+
+#include <QVBoxLayout>
+#include <QFrame>
+#include <QDialog>
+#include <QPainter>
+#include <QtPrintSupport/QPrinter>
+#include <QtPrintSupport/QPrintDialog>
 
 AltVsTimeUI::AltVsTimeUI(QWidget *p) : QFrame(p)
 {
@@ -191,9 +189,9 @@ AltVsTime::AltVsTime(QWidget *parent) : QDialog(parent)
 
     connect(avtUI->View->yAxis, SIGNAL(rangeChanged(QCPRange)), this, SLOT(onYRangeChanged(QCPRange)));
     connect(avtUI->View->xAxis2, SIGNAL(rangeChanged(QCPRange)), this, SLOT(onXRangeChanged(QCPRange)));
-    connect(avtUI->View, SIGNAL(plottableClick(QCPAbstractPlottable *plottable, int dataIndex, QMouseEvent *event)), this,
-            SLOT(plotMousePress(QCPAbstractPlottable *, int, QMouseEvent *)));
-    connect(avtUI->View, SIGNAL(mouseMove(QMouseEvent *)), this, SLOT(mouseOverLine(QMouseEvent *)));
+    connect(avtUI->View, SIGNAL(plottableClick(QCPAbstractPlottable*,int,QMouseEvent*)), this,
+            SLOT(plotMousePress(QCPAbstractPlottable*,int,QMouseEvent*)));
+    connect(avtUI->View, SIGNAL(mouseMove(QMouseEvent*)), this, SLOT(mouseOverLine(QMouseEvent*)));
 
     connect(avtUI->browseButton, SIGNAL(clicked()), this, SLOT(slotBrowseObject()));
     connect(avtUI->cityButton, SIGNAL(clicked()), this, SLOT(slotChooseCity()));
@@ -601,10 +599,10 @@ void AltVsTime::plotMousePress(QCPAbstractPlottable *abstractPlottable, int data
                                       "<td>%L4</td>"
                                       "</tr>"
                                       "</table>")
-                                       .arg(graph->name().isEmpty() ? "???" : graph->name())
-                                       .arg(localTime.toString())
-                                       .arg(localSiderealTime.toString())
-                                       .arg(QString::number(yValue, 'f', 2) + " " + QChar(176)),
+                                       .arg((graph->name().isEmpty() ? "???" : graph->name()),
+                                            localTime.toString(),
+                                            localSiderealTime.toString(),
+                                            QString::number(yValue, 'f', 2) + ' ' + QChar(176)),
                                    avtUI->View, avtUI->View->rect());
             }
         }
@@ -884,15 +882,6 @@ void AltVsTime::computeSunRiseSetTimes()
     KSAlmanac ksal;
     ksal.setDate(&today);
     ksal.setLocation(geo);
-    double sunRise = ksal.getSunRise();
-    double sunSet  = ksal.getSunSet();
-    this->setSunRiseSetTimes(sunRise, sunSet);
-}
-
-void AltVsTime::setSunRiseSetTimes(double sunRise, double sunSet)
-{
-    this->sunRise = sunRise;
-    this->sunSet  = sunSet;
 }
 
 //FIXME
@@ -1002,10 +991,9 @@ void AltVsTime::mouseOverLine(QMouseEvent *event)
                                       "<td>%L4</td>"
                                       "</tr>"
                                       "</table>")
-                                       .arg(graph->name().isEmpty() ? "???" : graph->name())
-                                       .arg(localTime.toString())
-                                       .arg(localSiderealTime.toString())
-                                       .arg(QString::number(yValue, 'f', 2) + " " + QChar(176)),
+                                       .arg((graph->name().isEmpty() ? "???" : graph->name()),
+                                            localTime.toString(), localSiderealTime.toString(),
+                                            QString::number(yValue, 'f', 2) + ' ' + QChar(176)),
                                    avtUI->View, avtUI->View->rect());
             }
             else
@@ -1197,36 +1185,29 @@ void AltVsTime::showCurrentDate()
 void AltVsTime::drawGradient()
 {
     // Things needed for Gradient:
-    KSAlmanac *ksal;
-    KStarsDateTime dtt;
-    GeoLocation *geoLoc;
-    dtt                = KStarsDateTime::currentDateTime();
-    geoLoc             = KStarsData::Instance()->geo();
-    ksal               = new KSAlmanac;
-    QDateTime midnight = QDateTime(dtt.date(), QTime());
-    KStarsDateTime utt = geoLoc->LTtoUT(midnight);
+    KSAlmanac ksal;
+    KStarsDateTime dtt  = KStarsDateTime::currentDateTime();
+    GeoLocation *geoLoc = KStarsData::Instance()->geo();
+    QDateTime midnight  = QDateTime(dtt.date(), QTime());
+    KStarsDateTime utt  = geoLoc->LTtoUT(KStarsDateTime(midnight));
 
     // Variables needed for Gradient:
     double SunRise, SunSet, Dawn, Dusk, SunMinAlt, SunMaxAlt;
     double MoonRise, MoonSet, MoonIllum;
 
-    //Default SunRise/SunSet values
-    SunRise = 0.25;
-    SunSet  = 0.75;
-
-    ksal->setLocation(geoLoc);
-    ksal->setDate(&utt);
+    ksal.setLocation(geoLoc);
+    ksal.setDate(&utt);
 
     // Get the values:
-    SunRise   = ksal->getSunRise();
-    SunSet    = ksal->getSunSet();
-    SunMaxAlt = ksal->getSunMaxAlt();
-    SunMinAlt = ksal->getSunMinAlt();
-    MoonRise  = ksal->getMoonRise();
-    MoonSet   = ksal->getMoonSet();
-    MoonIllum = ksal->getMoonIllum();
-    Dawn      = ksal->getDawnAstronomicalTwilight();
-    Dusk      = ksal->getDuskAstronomicalTwilight();
+    SunRise   = ksal.getSunRise();
+    SunSet    = ksal.getSunSet();
+    SunMaxAlt = ksal.getSunMaxAlt();
+    SunMinAlt = ksal.getSunMinAlt();
+    MoonRise  = ksal.getMoonRise();
+    MoonSet   = ksal.getMoonSet();
+    MoonIllum = ksal.getMoonIllum();
+    Dawn      = ksal.getDawnAstronomicalTwilight();
+    Dusk      = ksal.getDuskAstronomicalTwilight();
 
     gradient = new QPixmap(avtUI->View->rect().width(), avtUI->View->rect().height());
 
@@ -1374,31 +1355,31 @@ void AltVsTime::drawGradient()
 
     p.setClipping(false);
 
-    //Add vertical line indicating "now"
-    if (geoLoc)
-    {
-        QTime t = geoLoc->UTtoLT(KStarsDateTime::currentDateTimeUtc())
-                      .time(); // convert the current system clock time to the TZ corresponding to geo
-        double x = 12.0 + t.hour() + t.minute() / 60.0 + t.second() / 3600.0;
-        while (x > 24.0)
-            x -= 24.0;
-        int ix = int(x * pW / 24.0); //convert to screen pixel coords
-        p.setPen(QPen(QBrush("white"), 2.0, Qt::DotLine));
-        p.drawLine(ix, 0, ix, pH);
+    // Add vertical line indicating "now"
+    // Convert the current system clock time to the TZ corresponding to geo
+    QTime t = geoLoc->UTtoLT(KStarsDateTime::currentDateTimeUtc()).time();
+    double x = 12.0 + t.hour() + t.minute() / 60.0 + t.second() / 3600.0;
 
-        QFont largeFont = p.font();
-        largeFont.setPointSize(largeFont.pointSize() + 1);
+    while (x > 24.0)
+        x -= 24.0;
 
-        //Label this vertical line with the current time
-        p.save();
-        p.setFont(largeFont);
-        p.translate(ix + 10, pH - 20);
-        p.rotate(-90);
-        p.drawText(
-            0, 0,
-            QLocale().toString(t, QLocale::ShortFormat)); // short format necessary to avoid false time-zone labeling
-        p.restore();
-    }
+    // Convert to screen pixel coords
+    int ix = int(x * pW / 24.0);
+
+    p.setPen(QPen(QBrush("white"), 2.0, Qt::DotLine));
+    p.drawLine(ix, 0, ix, pH);
+
+    QFont largeFont = p.font();
+
+    largeFont.setPointSize(largeFont.pointSize() + 1);
+    // Label this vertical line with the current time
+    p.save();
+    p.setFont(largeFont);
+    p.translate(ix + 10, pH - 20);
+    p.rotate(-90);
+    // Short format necessary to avoid false time-zone labeling
+    p.drawText(0, 0, QLocale().toString(t, QLocale::ShortFormat));
+    p.restore();
     p.end();
 }
 
@@ -1406,7 +1387,7 @@ KStarsDateTime AltVsTime::getDate()
 {
     //convert midnight local time to UT:
     QDateTime lt(avtUI->DateWidget->date(), QTime());
-    return geo->LTtoUT(lt);
+    return geo->LTtoUT(KStarsDateTime(lt));
 }
 
 double AltVsTime::getEpoch(const QString &eName)
@@ -1472,7 +1453,6 @@ void AltVsTime::slotPrint()
     QPainter p;            // Our painter object
     QPrinter printer;      // Our printer object
     QString str_legend;    // Text legend
-    QString str_year;      // Calendar's year
     int text_height = 200; // Height of legend text zone in points
     QSize plot_size;       // Initial plot widget size
     QFont plot_font;       // Initial plot widget font
@@ -1500,7 +1480,7 @@ void AltVsTime::slotPrint()
 
         // Set text legend
         str_legend = i18n("Elevation vs. Time Plot");
-        str_legend += "\n";
+        str_legend += '\n';
         str_legend += geo->fullName();
         str_legend += " - ";
         str_legend += avtUI->DateWidget->date().toString("dd/MM/yyyy");

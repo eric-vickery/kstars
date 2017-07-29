@@ -20,6 +20,9 @@
 #include "binfilehelper.h"
 #include "deepstarcomponent.h"
 #include "highpmstarlist.h"
+#ifndef KSTARS_LITE
+#include "kstars.h"
+#endif
 #include "kstarsdata.h"
 #include "kstarssplash.h"
 #include "Options.h"
@@ -49,7 +52,7 @@
 StarComponent *StarComponent::pinstance = 0;
 
 StarComponent::StarComponent(SkyComposite *parent)
-    : ListComponent(parent), m_reindexNum(J2000), m_FaintMagnitude(-5.0), starsLoaded(false)
+    : ListComponent(parent), m_reindexNum(J2000)
 {
     m_skyMesh          = SkyMesh::Instance();
     m_StarBlockFactory = StarBlockFactory::Instance();
@@ -60,8 +63,6 @@ StarComponent::StarComponent(SkyComposite *parent)
     m_highPMStars.append(new HighPMStarList(840.0));
     m_highPMStars.append(new HighPMStarList(304.0));
     m_reindexInterval = StarObject::reindexInterval(304.0);
-
-    m_zoomMagLimit = 0.0;
 
     for (int i = 0; i <= MAX_LINENUMBER_MAG; i++)
         m_labelList[i] = new LabelList;
@@ -471,9 +472,9 @@ bool StarComponent::loadStaticData()
         Trixel trixel = i; // = ( ( i >= 256 ) ? ( i - 256 ) : ( i + 256 ) );
         for (unsigned long j = 0; j < (unsigned long)dataReader.getRecordCount(i); ++j)
         {
-            if (!fread(&stardata, sizeof(starData), 1, dataFile))
+            if (!fread(&stardata, sizeof(StarData), 1, dataFile))
             {
-                qDebug() << "FILE FORMAT ERROR: Could not read starData structure for star #" << j << " under trixel #"
+                qDebug() << "FILE FORMAT ERROR: Could not read StarData structure for star #" << j << " under trixel #"
                          << trixel << endl;
             }
 
@@ -584,15 +585,25 @@ SkyObject *StarComponent::findStarByGenetiveName(const QString name)
 // Overrides ListComponent::findByName() to include genetive name and HD index also in the search
 SkyObject *StarComponent::findByName(const QString &name)
 {
+#ifndef KSTARS_LITE
+    if (KStars::Closing)
+        return nullptr;
+#endif
+
     foreach (SkyObject *o, m_ObjectList)
     {
+#ifndef KSTARS_LITE
+        if (KStars::Closing)
+            return nullptr;
+#endif
+
         if (QString::compare(o->name(), name, Qt::CaseInsensitive) == 0 ||
             QString::compare(o->longname(), name, Qt::CaseInsensitive) == 0 ||
             QString::compare(o->name2(), name, Qt::CaseInsensitive) == 0 ||
             QString::compare(((StarObject *)o)->gname(false), name, Qt::CaseInsensitive) == 0)
             return o;
     }
-    return 0;
+    return nullptr;
 }
 
 void StarComponent::objectsInArea(QList<SkyObject *> &list, const SkyRegion &region)
@@ -639,7 +650,7 @@ StarObject *StarComponent::findByHDIndex(int HDnum)
         dataFile = m_DeepStarComponents.at(1)->getStarReader()->getFileHandle();
         //KDE_fseek( dataFile, offset, SEEK_SET );
         QT_FSEEK(dataFile, offset, SEEK_SET);
-        ret = fread(&stardata, sizeof(starData), 1, dataFile);
+        ret = fread(&stardata, sizeof(StarData), 1, dataFile);
         if (m_DeepStarComponents.at(1)->getStarReader()->getByteSwap())
         {
             byteSwap(&stardata);
@@ -746,7 +757,7 @@ void StarComponent::starsInAperture(QList<StarObject *> &list, const SkyPoint &c
     }
 }
 
-void StarComponent::byteSwap(starData *stardata)
+void StarComponent::byteSwap(StarData *stardata)
 {
     stardata->RA       = bswap_32(stardata->RA);
     stardata->Dec      = bswap_32(stardata->Dec);

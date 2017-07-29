@@ -7,8 +7,7 @@
     version 2 of the License, or (at your option) any later version.
  */
 
-#ifndef INDIDBUS_H
-#define INDIDBUS_H
+#pragma once
 
 #include <QObject>
 #include <QtDBus/QtDBus>
@@ -26,7 +25,7 @@ class INDIDBus : public QObject
     Q_CLASSINFO("D-Bus Interface", "org.kde.kstars.INDI")
 
   public:
-    explicit INDIDBus(QObject *parent = 0);
+    explicit INDIDBus(QObject *parent = nullptr);
 
     /** @defgroup INDIDBusInterface INDI DBus Interface
          * INDIDBus interface provides complete scripting capability over INDI servers and devices within KStars.
@@ -173,5 +172,3 @@ class INDIDBus : public QObject
 
     /** @}*/
 };
-
-#endif

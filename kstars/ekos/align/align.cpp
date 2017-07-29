@@ -7,50 +7,40 @@
     version 2 of the License, or (at your option) any later version.
  */
 
-#include <QProcess>
+#include "align.h"
 
+#include "alignadaptor.h"
+#include "alignview.h"
+#include "flagcomponent.h"
+#include "fov.h"
 #include "kstars.h"
 #include "kstarsdata.h"
-#include "align.h"
-#include "dms.h"
-#include "fov.h"
-#include "ekos/auxiliary/darklibrary.h"
-
+#include "offlineastrometryparser.h"
+#include "onlineastrometryparser.h"
+#include "opsalign.h"
+#include "opsastrometry.h"
+#include "opsastrometrycfg.h"
+#include "opsastrometryindexfiles.h"
 #include "Options.h"
+#include "remoteastrometryparser.h"
+#include "skymap.h"
+#include "skymapcomposite.h"
+#include "starobject.h"
+#include "auxiliary/QProgressIndicator.h"
+#include "dialogs/finddialog.h"
+#include "ekos/ekosmanager.h"
+#include "ekos/auxiliary/darklibrary.h"
+#include "fitsviewer/fitsdata.h"
+#include "fitsviewer/fitstab.h"
+#include "indi/clientmanager.h"
+#include "indi/driverinfo.h"
 
-#include <QFileDialog>
-#include <KMessageBox>
+#include <basedevice.h>
+
 #include <KConfigDialog>
 #include <KNotifications/KNotification>
 
-#include "auxiliary/QProgressIndicator.h"
-#include "indi/driverinfo.h"
-#include "indi/indicommon.h"
-#include "indi/clientmanager.h"
-#include "alignadaptor.h"
-
-#include "fitsviewer/fitsviewer.h"
-#include "fitsviewer/fitstab.h"
-#include "fitsviewer/fitsview.h"
-
-#include "ekos/ekosmanager.h"
-
-#include "onlineastrometryparser.h"
-#include "offlineastrometryparser.h"
-#include "remoteastrometryparser.h"
-#include "opsastrometry.h"
-#include "opsalign.h"
-#include "opsastrometrycfg.h"
-#include "opsastrometryindexfiles.h"
-
-#include "skymapcomposite.h"
-#include "dialogs/finddialog.h"
-#include "ui_mountmodel.h"
-#include "starobject.h"
-#include "skymap.h"
-#include "flagcomponent.h"
-
-#include <basedevice.h>
+#include <memory>
 
 #define PAH_CUTOFF_FOV            30 // Minimum FOV width in arcminutes for PAH to work
 #define MAXIMUM_SOLVER_ITERATIONS 10
@@ -72,40 +62,9 @@ Align::Align()
 
     dirPath = QDir::homePath();
 
-    state      = ALIGN_IDLE;
-    focusState = FOCUS_IDLE;
-    pahStage   = PAH_IDLE;
-
-    currentCCD       = nullptr;
-    currentTelescope = nullptr;
-    currentFilter    = nullptr;
-    useGuideHead     = false;
-    canSync          = false;
     //loadSlewMode = false;
-    loadSlewState = IPS_IDLE;
-    //m_isSolverComplete = false;
-    //m_isSolverSuccessful = false;
-    //m_slewToTargetSelected=false;
-    m_wcsSynced = false;
-    //isFocusBusy=false;
-    ccd_hor_pixel = ccd_ver_pixel = focal_length = aperture = sOrientation = sRA = sDEC = -1;
-    decDeviation = azDeviation = altDeviation = 0;
-
-    rememberUploadMode    = ISD::CCD::UPLOAD_CLIENT;
-    currentFilter         = nullptr;
-    filterPositionPending = false;
-    lockedFilterIndex = currentFilterIndex = -1;
-    retries                                = 0;
-    targetDiff                             = 1e6;
-    solverIterations                       = 0;
-    fov_x = fov_y = fov_pixscale = 0;
-
-    parser    = nullptr;
-    solverFOV = new FOV();
+    solverFOV.reset(new FOV());
     solverFOV->setColor(KStars::Instance()->data()->colorScheme()->colorNamed("SolverFOVColor").name());
-    onlineParser  = nullptr;
-    offlineParser = nullptr;
-    remoteParser  = nullptr;
 
     showFITSViewerB->setIcon(
         QIcon::fromTheme("kstars_fitsviewer", QIcon(":/icons/breeze/default/kstars_fitsviewer.svg")));
@@ -123,6 +82,7 @@ Align::Align()
     alignView->setBaseSize(alignWidget->size());
     alignView->createFloatingToolBar();
     QVBoxLayout *vlayout = new QVBoxLayout();
+
     vlayout->addWidget(alignView);
     alignWidget->setLayout(vlayout);
 
@@ -179,9 +139,9 @@ Align::Align()
 
     appendLogText(i18n("Idle."));
 
-    pi = new QProgressIndicator(this);
+    pi.reset(new QProgressIndicator(this));
 
-    stopLayout->addWidget(pi);
+    stopLayout->addWidget(pi.get());
 
     exposureIN->setValue(Options::alignExposure());
 
@@ -206,18 +166,18 @@ Align::Align()
     switch (solverTypeGroup->checkedId())
     {
         case SOLVER_ONLINE:
-            onlineParser = new Ekos::OnlineAstrometryParser();
-            parser       = onlineParser;
+            onlineParser.reset(new Ekos::OnlineAstrometryParser());
+            parser = onlineParser.get();
             break;
 
         case SOLVER_OFFLINE:
-            offlineParser = new OfflineAstrometryParser();
-            parser        = offlineParser;
+            offlineParser.reset(new OfflineAstrometryParser());
+            parser = offlineParser.get();
             break;
 
         case SOLVER_REMOTE:
-            remoteParser = new RemoteAstrometryParser();
-            parser       = remoteParser;
+            remoteParser.reset(new RemoteAstrometryParser());
+            parser = remoteParser.get();
             break;
     }
 
@@ -226,8 +186,8 @@ Align::Align()
         setEnabled(false);
     else
     {
-        connect(parser, SIGNAL(solverFinished(double, double, double, double)), this,
-                SLOT(solverFinished(double, double, double, double)), Qt::UniqueConnection);
+        connect(parser, SIGNAL(solverFinished(double,double,double,double)), this,
+                SLOT(solverFinished(double,double,double,double)), Qt::UniqueConnection);
         connect(parser, SIGNAL(solverFailed()), this, SLOT(solverFailed()), Qt::UniqueConnection);
     }
 
@@ -333,9 +293,9 @@ Align::Align()
 
     buildTarget();
 
-    connect(alignPlot, SIGNAL(mouseMove(QMouseEvent *)), this, SLOT(handlePointTooltip(QMouseEvent *)));
-    connect(rightLayout, SIGNAL(splitterMoved(int, int)), this, SLOT(handleVerticalPlotSizeChange()));
-    connect(alignSplitter, SIGNAL(splitterMoved(int, int)), this, SLOT(handleHorizontalPlotSizeChange()));
+    connect(alignPlot, SIGNAL(mouseMove(QMouseEvent*)), this, SLOT(handlePointTooltip(QMouseEvent*)));
+    connect(rightLayout, SIGNAL(splitterMoved(int,int)), this, SLOT(handleVerticalPlotSizeChange()));
+    connect(alignSplitter, SIGNAL(splitterMoved(int,int)), this, SLOT(handleHorizontalPlotSizeChange()));
     connect(accuracySpin, SIGNAL(valueChanged(int)), this, SLOT(buildTarget()));
 
     alignPlot->resize(190, 190);
@@ -391,8 +351,8 @@ Align::Align()
     mountModel.alignTable->verticalHeader()->setSectionsMovable(true);
     mountModel.alignTable->verticalHeader()->setDragEnabled(true);
     mountModel.alignTable->verticalHeader()->setDragDropMode(QAbstractItemView::InternalMove);
-    connect(mountModel.alignTable->verticalHeader(), SIGNAL(sectionMoved(int, int, int)), this,
-            SLOT(moveAlignPoint(int, int, int)));
+    connect(mountModel.alignTable->verticalHeader(), SIGNAL(sectionMoved(int,int,int)), this,
+            SLOT(moveAlignPoint(int,int,int)));
 
     mountModel.loadAlignB->setIcon(
         QIcon::fromTheme("document-open", QIcon(":/icons/breeze/default/document-open.svg")));
@@ -426,16 +386,16 @@ Align::Align()
     connect(exportSolutionsCSV, SIGNAL(clicked()), this, SLOT(exportSolutionPoints()));
     connect(autoScaleGraphB, SIGNAL(clicked()), this, SLOT(slotAutoScaleGraph()));
     connect(mountModelB, SIGNAL(clicked()), this, SLOT(slotMountModel()));
-    connect(solutionTable, SIGNAL(cellClicked(int, int)), this, SLOT(selectSolutionTableRow(int, int)));
+    connect(solutionTable, SIGNAL(cellClicked(int,int)), this, SLOT(selectSolutionTableRow(int,int)));
 
     connect(mountModel.wizardAlignB, SIGNAL(clicked()), this, SLOT(slotWizardAlignmentPoints()));
-    connect(mountModel.alignTypeBox, SIGNAL(currentIndexChanged(const QString)), this,
-            SLOT(alignTypeChanged(const QString)));
+    connect(mountModel.alignTypeBox, SIGNAL(currentIndexChanged(QString)), this,
+            SLOT(alignTypeChanged(QString)));
 
-    connect(mountModel.starListBox, SIGNAL(currentIndexChanged(const QString)), this,
-            SLOT(slotStarSelected(const QString)));
-    connect(mountModel.greekStarListBox, SIGNAL(currentIndexChanged(const QString)), this,
-            SLOT(slotStarSelected(const QString)));
+    connect(mountModel.starListBox, SIGNAL(currentIndexChanged(QString)), this,
+            SLOT(slotStarSelected(QString)));
+    connect(mountModel.greekStarListBox, SIGNAL(currentIndexChanged(QString)), this,
+            SLOT(slotStarSelected(QString)));
 
     connect(mountModel.loadAlignB, SIGNAL(clicked()), this, SLOT(slotLoadAlignmentPoints()));
     connect(mountModel.saveAsAlignB, SIGNAL(clicked()), this, SLOT(slotSaveAsAlignmentPoints()));
@@ -453,10 +413,6 @@ Align::Align()
 
 Align::~Align()
 {
-    delete (pi);
-    delete (solverFOV);
-    delete (parser);
-
     if (alignWidget->parent() == nullptr)
         toggleAlignWidgetFullScreen();
 
@@ -465,7 +421,7 @@ Align::~Align()
     dir.setNameFilters(QStringList() << "fits*"
                                      << "tmp.*");
     dir.setFilter(QDir::Files);
-    foreach (QString dirFile, dir.entryList())
+    for (auto &dirFile : dir.entryList())
         dir.remove(dirFile);
 }
 void Align::selectSolutionTableRow(int row, int column)
@@ -556,11 +512,11 @@ void Align::handlePointTooltip(QMouseEvent *event)
                                   "</tr>"
                                   "</table>")
                                    .arg(point + 1)
-                                   .arg(solutionTable->item(point, 2)->text())
-                                   .arg(solutionTable->item(point, 0)->text())
-                                   .arg(solutionTable->item(point, 1)->text())
-                                   .arg(solutionTable->item(point, 4)->text())
-                                   .arg(solutionTable->item(point, 5)->text()),
+                                   .arg(solutionTable->item(point, 2)->text(),
+                                        solutionTable->item(point, 0)->text(),
+                                        solutionTable->item(point, 1)->text(),
+                                        solutionTable->item(point, 4)->text(),
+                                        solutionTable->item(point, 5)->text()),
                                alignPlot, alignPlot->rect());
         }
     }
@@ -1008,8 +964,8 @@ void Align::generateAlignStarList()
     boxNames.removeDuplicates();
     greekBoxNames.removeDuplicates();
     qSort(greekBoxNames.begin(), greekBoxNames.end(), [](const QString &a, const QString &b) {
-        QStringList aParts = a.split(" ");
-        QStringList bParts = b.split(" ");
+        QStringList aParts = a.split(' ');
+        QStringList bParts = b.split(' ');
         if (aParts.length() < 2 || bParts.length() < 2)
             return a < b; //This should not happen, they should all have 2 words in the string.
         if (aParts[1] == bParts[1])
@@ -1059,7 +1015,7 @@ void Align::updatePreviewAlignPoints()
     FlagComponent *flags = KStarsData::Instance()->skyComposite()->flags();
     for (int i = 0; i < flags->size(); i++)
     {
-        if (flags->label(i).startsWith("Align"))
+        if (flags->label(i).startsWith(QLatin1String("Align")))
         {
             flags->remove(i);
             i--;
@@ -1083,7 +1039,7 @@ void Align::updatePreviewAlignPoints()
                 QString objString = objNameCell->text();
 
                 SkyPoint flagPoint(raDMS, decDMS);
-                flags->add(flagPoint, "J2000", "Default", "Align " + QString::number(i + 1) + " " + objString, "white");
+                flags->add(flagPoint, "J2000", "Default", "Align " + QString::number(i + 1) + ' ' + objString, "white");
             }
         }
     }
@@ -1204,7 +1160,7 @@ void Align::slotSaveAlignmentPoints()
 {
     QUrl backupCurrent = alignURL;
 
-    if (alignURL.toLocalFile().startsWith("/tmp/") || alignURL.toLocalFile().contains("/Temp"))
+    if (alignURL.toLocalFile().startsWith(QLatin1String("/tmp/")) || alignURL.toLocalFile().contains("/Temp"))
         alignURL.clear();
 
     if (alignURL.isEmpty())
@@ -1220,7 +1176,7 @@ void Align::slotSaveAlignmentPoints()
 
         alignURLPath = QUrl(alignURL.url(QUrl::RemoveFilename));
 
-        if (alignURL.toLocalFile().endsWith(".eal") == false)
+        if (alignURL.toLocalFile().endsWith(QLatin1String(".eal")) == false)
             alignURL.setPath(alignURL.toLocalFile() + ".eal");
 
         if (QFile::exists(alignURL.toLocalFile()))
@@ -1360,8 +1316,9 @@ int Align::findNextAlignmentPointAfter(int currentSpot)
             {
                 dms raDMS = dms::fromString(raCell->text(), false);
                 dms deDMS = dms::fromString(deCell->text(), true);
+                SkyPoint point(raDMS, deDMS);
+                dms thisDiff = thisPt.angularDistanceTo(&point);
 
-                dms thisDiff = thisPt.angularDistanceTo(new SkyPoint(raDMS, deDMS));
                 if (thisDiff.Degrees() < bestDiff.Degrees())
                 {
                     index    = i;
@@ -1384,7 +1341,7 @@ void Align::exportSolutionPoints()
                                                   "CSV File (*.csv)");
     if (exportFile.isEmpty()) // if user presses cancel
         return;
-    if (exportFile.toLocalFile().endsWith(".csv") == false)
+    if (exportFile.toLocalFile().endsWith(QLatin1String(".csv")) == false)
         exportFile.setPath(exportFile.toLocalFile() + ".csv");
 
     QString path = exportFile.toLocalFile();
@@ -1438,9 +1395,9 @@ void Align::exportSolutionPoints()
         }
         dms raDMS = dms::fromString(raCell->text(), false);
         dms deDMS = dms::fromString(deCell->text(), true);
-        outstream << raDMS.toHMSString() << "," << deDMS.toDMSString() << "," << raDMS.Degrees() << ","
-                  << deDMS.Degrees() << "," << objNameCell->text() << "," << raErrorCell->text().remove("\"") << ","
-                  << deErrorCell->text().remove("\"") << endl;
+        outstream << raDMS.toHMSString() << ',' << deDMS.toDMSString() << ',' << raDMS.Degrees() << ','
+                  << deDMS.Degrees() << ',' << objNameCell->text() << ',' << raErrorCell->text().remove('\"') << ','
+                  << deErrorCell->text().remove('\"') << endl;
     }
     appendLogText(i18n("Solution Points Saved as: %1", path));
     file.close();
@@ -1523,11 +1480,11 @@ void Align::moveAlignPoint(int logicalIndex, int oldVisualIndex, int newVisualIn
         mountModel.alignTable->setItem(newVisualIndex, i, oldItem);
         mountModel.alignTable->setItem(oldVisualIndex, i, newItem);
     }
-    disconnect(mountModel.alignTable->verticalHeader(), SIGNAL(sectionMoved(int, int, int)), this,
-               SLOT(moveAlignPoint(int, int, int)));
+    disconnect(mountModel.alignTable->verticalHeader(), SIGNAL(sectionMoved(int,int,int)), this,
+               SLOT(moveAlignPoint(int,int,int)));
     mountModel.alignTable->verticalHeader()->moveSection(newVisualIndex, oldVisualIndex);
-    connect(mountModel.alignTable->verticalHeader(), SIGNAL(sectionMoved(int, int, int)), this,
-            SLOT(moveAlignPoint(int, int, int)));
+    connect(mountModel.alignTable->verticalHeader(), SIGNAL(sectionMoved(int,int,int)), this,
+            SLOT(moveAlignPoint(int,int,int)));
 
     if (previewShowing)
         updatePreviewAlignPoints();
@@ -1765,8 +1722,8 @@ bool Align::isParserOK()
 
     if (rc)
     {
-        connect(parser, SIGNAL(solverFinished(double, double, double, double)), this,
-                SLOT(solverFinished(double, double, double, double)), Qt::UniqueConnection);
+        connect(parser, SIGNAL(solverFinished(double,double,double,double)), this,
+                SLOT(solverFinished(double,double,double,double)), Qt::UniqueConnection);
         connect(parser, SIGNAL(solverFailed()), this, SLOT(solverFailed()), Qt::UniqueConnection);
     }
 
@@ -1795,49 +1752,50 @@ void Align::setSolverType(int type)
     {
         case SOLVER_ONLINE:
             loadSlewB->setEnabled(true);
-            if (onlineParser != nullptr)
+            if (onlineParser.get() != nullptr)
             {
-                parser = onlineParser;
+                parser = onlineParser.get();
                 return;
             }
 
-            onlineParser = new Ekos::OnlineAstrometryParser();
-            parser       = onlineParser;
+            onlineParser.reset(new Ekos::OnlineAstrometryParser());
+            parser = onlineParser.get();
             break;
 
         case SOLVER_OFFLINE:
             loadSlewB->setEnabled(true);
-            if (offlineParser != nullptr)
+            if (offlineParser.get() != nullptr)
             {
-                parser = offlineParser;
+                parser = offlineParser.get();
                 return;
             }
 
-            offlineParser = new Ekos::OfflineAstrometryParser();
-            parser        = offlineParser;
+            offlineParser.reset(new Ekos::OfflineAstrometryParser());
+            parser = offlineParser.get();
             break;
 
         case SOLVER_REMOTE:
             loadSlewB->setEnabled(true);
-            if (remoteParser != nullptr)
+            if (remoteParser.get() != nullptr)
             {
-                parser = remoteParser;
+                parser = remoteParser.get();
                 (dynamic_cast<RemoteAstrometryParser *>(parser))->setAstrometryDevice(remoteParserDevice);
                 return;
             }
 
-            remoteParser = new Ekos::RemoteAstrometryParser();
-            parser       = remoteParser;
+            remoteParser.reset(new Ekos::RemoteAstrometryParser());
+            parser = remoteParser.get();
             (dynamic_cast<RemoteAstrometryParser *>(parser))->setAstrometryDevice(remoteParserDevice);
-
+            if (currentCCD)
+                (dynamic_cast<RemoteAstrometryParser *>(parser))->setCCD(currentCCD->getDeviceName());
             break;
     }
 
     parser->setAlign(this);
     if (parser->init())
     {
-        connect(parser, SIGNAL(solverFinished(double, double, double, double)), this,
-                SLOT(solverFinished(double, double, double, double)), Qt::UniqueConnection);
+        connect(parser, SIGNAL(solverFinished(double,double,double,double)), this,
+                SLOT(solverFinished(double,double,double,double)), Qt::UniqueConnection);
         connect(parser, SIGNAL(solverFailed()), this, SLOT(solverFailed()), Qt::UniqueConnection);
     }
     else
@@ -1872,13 +1830,16 @@ void Align::checkCCD(int ccdNum)
     }
 
     if (currentCCD)
-        disconnect(currentCCD, SIGNAL(switchUpdated(ISwitchVectorProperty *)), this,
-                   SLOT(processCCDSwitch(ISwitchVectorProperty *)));
+        disconnect(currentCCD, SIGNAL(switchUpdated(ISwitchVectorProperty*)), this,
+                   SLOT(processCCDSwitch(ISwitchVectorProperty*)));
 
     currentCCD = CCDs.at(ccdNum);
 
-    connect(currentCCD, SIGNAL(switchUpdated(ISwitchVectorProperty *)), this,
-            SLOT(processCCDSwitch(ISwitchVectorProperty *)));
+    connect(currentCCD, SIGNAL(switchUpdated(ISwitchVectorProperty*)), this,
+            SLOT(processCCDSwitch(ISwitchVectorProperty*)));
+
+    if (solverTypeGroup->checkedId() == SOLVER_REMOTE && remoteParser.get() != nullptr)
+        (dynamic_cast<RemoteAstrometryParser *>(remoteParser.get()))->setCCD(currentCCD->getDeviceName());
 
     syncCCDInfo();
 
@@ -1906,8 +1867,8 @@ void Align::setTelescope(ISD::GDInterface *newTelescope)
 {
     currentTelescope = static_cast<ISD::Telescope *>(newTelescope);
 
-    connect(currentTelescope, SIGNAL(numberUpdated(INumberVectorProperty *)), this,
-            SLOT(processTelescopeNumber(INumberVectorProperty *)));
+    connect(currentTelescope, SIGNAL(numberUpdated(INumberVectorProperty*)), this,
+            SLOT(processTelescopeNumber(INumberVectorProperty*)));
 
     syncTelescopeInfo();
 }
@@ -2374,12 +2335,12 @@ bool Align::captureAndSolve()
 
     alignView->setBaseSize(alignWidget->size());
 
-    connect(currentCCD, SIGNAL(BLOBUpdated(IBLOB *)), this, SLOT(newFITS(IBLOB *)));
-    connect(currentCCD, SIGNAL(newExposureValue(ISD::CCDChip *, double, IPState)), this,
-            SLOT(checkCCDExposureProgress(ISD::CCDChip *, double, IPState)));
+    connect(currentCCD, SIGNAL(BLOBUpdated(IBLOB*)), this, SLOT(newFITS(IBLOB*)));
+    connect(currentCCD, SIGNAL(newExposureValue(ISD::CCDChip*,double,IPState)), this,
+            SLOT(checkCCDExposureProgress(ISD::CCDChip*,double,IPState)));
 
     // In case of remote solver, we set mode to UPLOAD_BOTH
-    if (solverTypeGroup->checkedId() == SOLVER_REMOTE && remoteParser)
+    if (solverTypeGroup->checkedId() == SOLVER_REMOTE && remoteParser.get() != nullptr)
     {
         // Update ACTIVE_CCD of the remote astrometry driver so it listens to BLOB emitted by the CCD
         ITextVectorProperty *activeDevices = remoteParserDevice->getBaseDevice()->getText("ACTIVE_DEVICES");
@@ -2395,10 +2356,12 @@ bool Align::captureAndSolve()
         }
 
         // Enable remote parse
-        dynamic_cast<RemoteAstrometryParser *>(remoteParser)->setEnabled(true);
+        dynamic_cast<RemoteAstrometryParser *>(remoteParser.get())->setEnabled(true);
+
         QString options        = solverOptions->text().simplified();
-        QStringList solverArgs = options.split(" ");
-        dynamic_cast<RemoteAstrometryParser *>(remoteParser)->sendArgs(solverArgs);
+        QStringList solverArgs = options.split(' ');
+
+        dynamic_cast<RemoteAstrometryParser *>(remoteParser.get())->sendArgs(solverArgs);
 
         if (solverIterations == 0)
         {
@@ -2421,7 +2384,7 @@ bool Align::captureAndSolve()
     dir.setNameFilters(QStringList() << "fits*"
                                      << "tmp.*");
     dir.setFilter(QDir::Files);
-    foreach (QString dirFile, dir.entryList())
+    for (auto &dirFile : dir.entryList())
         dir.remove(dirFile);
     //}
 
@@ -2533,12 +2496,9 @@ void Align::newFITS(IBLOB *bp)
                 targetChip->getFrame(&x, &y, &w, &h);
                 targetChip->getBinning(&binx, &biny);
 
-                FITSData *darkData = nullptr;
-
                 uint16_t offsetX = x / binx;
                 uint16_t offsetY = y / biny;
-
-                darkData = DarkLibrary::Instance()->getDarkFrame(targetChip, exposureIN->value());
+                FITSData *darkData = DarkLibrary::Instance()->getDarkFrame(targetChip, exposureIN->value());
 
                 connect(DarkLibrary::Instance(), SIGNAL(darkFrameCompleted(bool)), this, SLOT(setCaptureComplete()));
                 connect(DarkLibrary::Instance(), SIGNAL(newLog(QString)), this, SLOT(appendLogText(QString)));
@@ -2604,7 +2564,7 @@ void Align::startSolving(const QString &filename, bool isGenerated)
 
     if (isGenerated)
     {
-        solverArgs = options.split(" ");
+        solverArgs = options.split(' ');
         // Replace RA and DE with LST & 90/-90 pole
         if (pahStage == PAH_FIRST_CAPTURE)
         {
@@ -2619,10 +2579,10 @@ void Align::startSolving(const QString &filename, bool isGenerated)
             }
         }
     }
-    else if (filename.endsWith("fits") || filename.endsWith("fit"))
+    else if (filename.endsWith(QLatin1String("fits")) || filename.endsWith(QLatin1String("fit")))
     {
         solverArgs = getSolverOptionsFromFITS(filename);
-        appendLogText(i18n("Using solver options: %1", solverArgs.join(" ")));
+        appendLogText(i18n("Using solver options: %1", solverArgs.join(' ')));
     }
     else
     {
@@ -2656,7 +2616,7 @@ void Align::startSolving(const QString &filename, bool isGenerated)
             solverArgs = generateOptions(optionsMap);
         }
         else if (rc == KMessageBox::No)
-            solverArgs = options.split(" ");
+            solverArgs = options.split(' ');
         else
         {
             abort();
@@ -2709,10 +2669,10 @@ void Align::solverFinished(double orientation, double ra, double dec, double pix
 
     alignTimer.stop();
 
-    if (solverTypeGroup->checkedId() == SOLVER_REMOTE && remoteParser)
+    if (solverTypeGroup->checkedId() == SOLVER_REMOTE && remoteParser.get() != nullptr)
     {
         // Disable remote parse
-        dynamic_cast<RemoteAstrometryParser *>(remoteParser)->setEnabled(false);
+        dynamic_cast<RemoteAstrometryParser *>(remoteParser.get())->setEnabled(false);
     }
 
     int binx, biny;
@@ -2746,7 +2706,8 @@ void Align::solverFinished(double orientation, double ra, double dec, double pix
     double deDiff = (alignCoord.dec().Degrees() - targetCoord.dec().Degrees()) * 3600;
 
     dms RADiff(fabs(raDiff) / 3600.0), DEDiff(deDiff / 3600.0);
-    dRAOut->setText(QString("%1%2").arg(raDiff > 0 ? "+" : "-").arg(RADiff.toHMSString()));
+
+    dRAOut->setText(QString("%1%2").arg((raDiff > 0 ? "+" : "-"), RADiff.toHMSString()));
     dDEOut->setText(DEDiff.toDMSString(true));
 
     pixScaleOut->setText(QString::number(pixscale, 'f', 2));
@@ -2801,7 +2762,7 @@ void Align::solverFinished(double orientation, double ra, double dec, double pix
         textLabel->setBrush(Qt::white);
         //textLabel->setBrush(Qt::NoBrush);
         textLabel->setPen(Qt::NoPen);
-        textLabel->setText(" " + QString::number(solutionTable->rowCount()) + " ");
+        textLabel->setText(' ' + QString::number(solutionTable->rowCount()) + ' ');
         textLabel->setFont(QFont(font().family(), 8));
 
         if (!alignPlot->xAxis->range().contains(raDiff))
@@ -2864,7 +2825,8 @@ void Align::solverFinished(double orientation, double ra, double dec, double pix
     // CONTINUE HERE
 
     //This block of code along with some sections in the switch below will set the status report in the solution table for this item.
-    QTableWidgetItem *statusReport = new QTableWidgetItem();
+    std::unique_ptr<QTableWidgetItem> statusReport(new QTableWidgetItem());
+
     if (loadSlewState == IPS_IDLE)
     {
         solutionTable->setCellWidget(currentRow, 3, new QWidget());
@@ -2880,7 +2842,7 @@ void Align::solverFinished(double orientation, double ra, double dec, double pix
             if (loadSlewState == IPS_IDLE)
             {
                 statusReport->setIcon(QIcon(":/icons/AlignSuccess.svg"));
-                solutionTable->setItem(currentRow, 3, statusReport);
+                solutionTable->setItem(currentRow, 3, statusReport.release());
             }
 
             return;
@@ -2896,7 +2858,7 @@ void Align::solverFinished(double orientation, double ra, double dec, double pix
                     if (loadSlewState == IPS_IDLE)
                     {
                         statusReport->setIcon(QIcon(":/icons/AlignFailure.svg"));
-                        solutionTable->setItem(currentRow, 3, statusReport);
+                        solutionTable->setItem(currentRow, 3, statusReport.release());
                     }
 
                     solverFailed();
@@ -2910,7 +2872,7 @@ void Align::solverFinished(double orientation, double ra, double dec, double pix
                 if (loadSlewState == IPS_IDLE)
                 {
                     statusReport->setIcon(QIcon(":/icons/AlignWarning.svg"));
-                    solutionTable->setItem(currentRow, 3, statusReport);
+                    solutionTable->setItem(currentRow, 3, statusReport.release());
                 }
 
                 executeGOTO();
@@ -2920,7 +2882,7 @@ void Align::solverFinished(double orientation, double ra, double dec, double pix
             if (loadSlewState == IPS_IDLE)
             {
                 statusReport->setIcon(QIcon(":/icons/AlignSuccess.svg"));
-                solutionTable->setItem(currentRow, 3, statusReport);
+                solutionTable->setItem(currentRow, 3, statusReport.release());
             }
 
             appendLogText(i18n("Target is within acceptable range. Astrometric solver is successful."));
@@ -2936,7 +2898,7 @@ void Align::solverFinished(double orientation, double ra, double dec, double pix
             if (loadSlewState == IPS_IDLE)
             {
                 statusReport->setIcon(QIcon(":/icons/AlignSuccess.svg"));
-                solutionTable->setItem(currentRow, 3, statusReport);
+                solutionTable->setItem(currentRow, 3, statusReport.release());
             }
             if (mountModelRunning)
             {
@@ -3951,7 +3913,7 @@ FOV *Align::fov()
     if (sOrientation == -1)
         return nullptr;
     else
-        return solverFOV;
+        return solverFOV.get();
 }
 
 void Align::setLockedFilter(ISD::GDInterface *filter, int lockedPosition)
@@ -3965,8 +3927,8 @@ void Align::setLockedFilter(ISD::GDInterface *filter, int lockedPosition)
         if (filterSlot)
             currentFilterIndex = filterSlot->np[0].value - 1;
 
-        connect(currentFilter, SIGNAL(numberUpdated(INumberVectorProperty *)), this,
-                SLOT(processFilterNumber(INumberVectorProperty *)), Qt::UniqueConnection);
+        connect(currentFilter, SIGNAL(numberUpdated(INumberVectorProperty*)), this,
+                SLOT(processFilterNumber(INumberVectorProperty*)), Qt::UniqueConnection);
     }
 }
 
@@ -4296,7 +4258,7 @@ void Align::restartPAHProcess()
     if (pahStage == PAH_IDLE)
         return;
 
-    // Only display dialog if user explicity restarts
+    // Only display dialog if user explicitly restarts
     if ((static_cast<QPushButton *>(sender()) == PAHRestartB) &&
         KMessageBox::questionYesNo(KStars::Instance(),
                                    i18n("Are you sure you want to restart the polar alignment process?"),
@@ -4432,7 +4394,7 @@ void Align::calculatePAHError()
 
     alignView->setCorrectionParams(correctionVector);
 
-    connect(alignView, SIGNAL(trackingStarSelected(int, int)), this, SLOT(setPAHCorrectionOffset(int, int)));
+    connect(alignView, SIGNAL(trackingStarSelected(int,int)), this, SLOT(setPAHCorrectionOffset(int,int)));
 }
 
 void Align::setPAHCorrectionOffset(int x, int y)
@@ -4924,7 +4886,7 @@ void Align::setAstrometryDevice(ISD::GDInterface *newAstrometry)
     remoteParserDevice = newAstrometry;
     remoteSolverR->setEnabled(true);
 
-    if (remoteParser)
+    if (remoteParser.get() != nullptr)
         remoteParser->setAstrometryDevice(remoteParserDevice);
 }
 }

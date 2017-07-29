@@ -107,8 +107,8 @@ class DeepStarComponent : public ListComponent
     bool starsInAperture(QList<StarObject *> &list, const SkyPoint &center, float radius, float maglim = -29);
 
     // TODO: Find the right place for this method
-    static void byteSwap(deepStarData *stardata);
-    static void byteSwap(starData *stardata);
+    static void byteSwap(DeepStarData *stardata);
+    static void byteSwap(StarData *stardata);
 
     static StarBlockFactory m_StarBlockFactory;
 
@@ -117,26 +117,29 @@ class DeepStarComponent : public ListComponent
     KSNumbers m_reindexNum;
 
     float m_zoomMagLimit { 0 };
-    float triggerMag { 0 }; // Magnitude at which this catalog triggers
-
-    float m_FaintMagnitude { 0 }; // Limiting magnitude of the catalog currently loaded
-    bool fileOpened { false };        // Indicates whether the file is opened or not
+    /// Magnitude at which this catalog triggers
+    float triggerMag { 0 };
+    /// Limiting magnitude of the catalog currently loaded
+    float m_FaintMagnitude { 0 };
+    /// Indicates whether the file is opened or not
+    bool fileOpened { false };
     unsigned long visibleStarCount { 0 };
-    quint16 MSpT; // Maximum number of stars in any given trixel
+    /// Maximum number of stars in any given trixel
+    quint16 MSpT { 0 };
 
     // Time keeping variables
     long unsigned t_dynamicLoad { 0 };
     long unsigned t_drawUnnamed { 0 };
     long unsigned t_updateCache { 0 };
 
-    QVector<StarBlockList *> m_starBlockList;
+    QVector<std::shared_ptr<StarBlockList>> m_starBlockList;
     QHash<int, StarObject *> m_CatalogNumber;
 
     bool staticStars { false };
 
     // Stuff required for reading data
-    deepStarData deepstardata;
-    starData stardata;
+    DeepStarData deepstardata;
+    StarData stardata;
     BinFileHelper starReader;
     QString dataFileName;
 };

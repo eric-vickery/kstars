@@ -17,57 +17,34 @@
 
 #include "detaildialog.h"
 
-#include <QLineEdit>
-#include <QPixmap>
-#include <QRegExp>
-#include <QTextStream>
-#include <QHBoxLayout>
-#include <QLabel>
-#include <QTreeWidgetItem>
-#include <QPushButton>
-#include <QTemporaryFile>
-#include <QDebug>
-#include <QDesktopServices>
+#include "config-kstars.h"
 
-#include <KMessageBox>
-#include <KToolInvocation>
-#include <KLocalizedString>
-#include <QStandardPaths>
-
+#include "addlinkdialog.h"
+#include "kspaths.h"
 #include "kstars.h"
 #include "kstarsdata.h"
-#include "kstarsdatetime.h"
-#include "ksnumbers.h"
-#include "geolocation.h"
 #include "ksutils.h"
+#include "observinglist.h"
 #include "skymap.h"
-#include "skyobjects/skyobject.h"
-#include "skyobjects/starobject.h"
+#include "thumbnailpicker.h"
+#include "skycomponents/constellationboundarylines.h"
+#include "skycomponents/skymapcomposite.h"
 #include "skyobjects/deepskyobject.h"
-#include "skyobjects/ksplanetbase.h"
-#include "skyobjects/ksmoon.h"
-#include "skyobjects/kscomet.h"
 #include "skyobjects/ksasteroid.h"
+#include "skyobjects/kscomet.h"
+#include "skyobjects/ksmoon.h"
+#include "skyobjects/starobject.h"
 #include "skyobjects/supernova.h"
 #include "skycomponents/catalogcomponent.h"
-#include "thumbnailpicker.h"
-#include "Options.h"
-#include "widgets/kshelplabel.h"
-#include "addlinkdialog.h"
-#include "observinglist.h"
-
-#include <config-kstars.h>
 
 #ifdef HAVE_INDI
 #include <basedevice.h>
 #include "indi/indilistener.h"
-#include "indi/indistd.h"
-#include "indi/driverinfo.h"
 #endif
 
-#include "skycomponents/constellationboundarylines.h"
-#include "skycomponents/skymapcomposite.h"
-#include "kspaths.h"
+#include <KToolInvocation>
+
+#include <QDesktopServices>
 
 DetailDialog::DetailDialog(SkyObject *o, const KStarsDateTime &ut, GeoLocation *geo, QWidget *parent)
     : KPageDialog(parent), selectedObject(o), Data(0), DataComet(0), Pos(0), Links(0), Adv(0), Log(0)
@@ -83,7 +60,7 @@ DetailDialog::DetailDialog(SkyObject *o, const KStarsDateTime &ut, GeoLocation *
     titlePalette.setColor(foregroundRole(), palette().color(QPalette::Active, QPalette::HighlightedText));
 
     //Create thumbnail image
-    Thumbnail = new QPixmap(200, 200);
+    Thumbnail.reset(new QPixmap(200, 200));
 
     setWindowTitle(i18n("Object Details"));
 
@@ -100,7 +77,6 @@ DetailDialog::DetailDialog(SkyObject *o, const KStarsDateTime &ut, GeoLocation *
 
 DetailDialog::~DetailDialog()
 {
-    delete Thumbnail;
 }
 
 void DetailDialog::createGeneralTab()
@@ -683,19 +659,19 @@ void DetailDialog::createLinksTab()
     connect(Links->RemoveLinkButton, SIGNAL(clicked()), this, SLOT(removeLinkDialog()));
 
     // When an item is selected in info list, selected items are cleared image list.
-    connect(Links->InfoTitleList, SIGNAL(currentItemChanged(QListWidgetItem *, QListWidgetItem *)), this,
-            SLOT(setCurrentLink(QListWidgetItem *)));
-    connect(Links->InfoTitleList, SIGNAL(currentItemChanged(QListWidgetItem *, QListWidgetItem *)),
+    connect(Links->InfoTitleList, SIGNAL(currentItemChanged(QListWidgetItem*,QListWidgetItem*)), this,
+            SLOT(setCurrentLink(QListWidgetItem*)));
+    connect(Links->InfoTitleList, SIGNAL(currentItemChanged(QListWidgetItem*,QListWidgetItem*)),
             Links->ImageTitleList, SLOT(clearSelection()));
 
     // vice versa
-    connect(Links->ImageTitleList, SIGNAL(currentItemChanged(QListWidgetItem *, QListWidgetItem *)), this,
-            SLOT(setCurrentLink(QListWidgetItem *)));
-    connect(Links->ImageTitleList, SIGNAL(currentItemChanged(QListWidgetItem *, QListWidgetItem *)),
+    connect(Links->ImageTitleList, SIGNAL(currentItemChanged(QListWidgetItem*,QListWidgetItem*)), this,
+            SLOT(setCurrentLink(QListWidgetItem*)));
+    connect(Links->ImageTitleList, SIGNAL(currentItemChanged(QListWidgetItem*,QListWidgetItem*)),
             Links->InfoTitleList, SLOT(clearSelection()));
 
-    connect(Links->InfoTitleList, SIGNAL(itemDoubleClicked(QListWidgetItem *)), this, SLOT(viewLink()));
-    connect(Links->ImageTitleList, SIGNAL(itemDoubleClicked(QListWidgetItem *)), this, SLOT(viewLink()));
+    connect(Links->InfoTitleList, SIGNAL(itemDoubleClicked(QListWidgetItem*)), this, SLOT(viewLink()));
+    connect(Links->ImageTitleList, SIGNAL(itemDoubleClicked(QListWidgetItem*)), this, SLOT(viewLink()));
 
     connect(Links->InfoTitleList, SIGNAL(itemSelectionChanged()), this, SLOT(updateButtons()));
     connect(Links->ImageTitleList, SIGNAL(itemSelectionChanged()), this, SLOT(updateButtons()));
@@ -738,7 +714,7 @@ void DetailDialog::addLink()
                 QTextStream stream(&file);
                 stream << entry << endl;
                 file.close();
-                emit updateLists();
+                updateLists();
             }
         }
         else
@@ -764,7 +740,7 @@ void DetailDialog::addLink()
                 QTextStream stream(&file);
                 stream << entry << endl;
                 file.close();
-                emit updateLists();
+                updateLists();
             }
         }
     }
@@ -783,7 +759,7 @@ void DetailDialog::createAdvancedTab()
     Adv = new DatabaseWidget(this);
     addPage(Adv, i18n("Advanced"));
 
-    connect(Adv->ADVTree, SIGNAL(itemDoubleClicked(QTreeWidgetItem *, int)), this, SLOT(viewADVData()));
+    connect(Adv->ADVTree, SIGNAL(itemDoubleClicked(QTreeWidgetItem*,int)), this, SLOT(viewADVData()));
 
     populateADVTree();
 }
@@ -974,9 +950,10 @@ void DetailDialog::editLinkDialog()
 void DetailDialog::removeLinkDialog()
 {
     int type = 0, row = 0;
-    QString currentItemURL, currentItemTitle, LineEntry, TempFileName, FileLine;
+    QString currentItemURL, currentItemTitle, LineEntry, TempFileName;
     QFile URLFile;
     QTemporaryFile TempFile;
+
     TempFile.setAutoRemove(false);
     TempFile.open();
     TempFileName = TempFile.fileName();

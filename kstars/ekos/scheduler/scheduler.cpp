@@ -9,32 +9,25 @@
     version 2 of the License, or (at your option) any later version.
  */
 
-#include "Options.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-
-#include <QtDBus>
-#include <QFileDialog>
-
-#include <KMessageBox>
-#include <KLocalizedString>
-#include <KNotifications/KNotification>
-
-#include "scheduleradaptor.h"
-#include "dialogs/finddialog.h"
-#include "ekos/capture/sequencejob.h"
-#include "ekos/ekosmanager.h"
-#include "kstars.h"
 #include "scheduler.h"
-#include "skymapcomposite.h"
-#include "kstarsdata.h"
-#include "ksmoon.h"
+
 #include "ksalmanac.h"
+#include "ksnotification.h"
+#include "kstars.h"
+#include "kstarsdata.h"
 #include "ksutils.h"
 #include "mosaic.h"
+#include "Options.h"
+#include "scheduleradaptor.h"
+#include "schedulerjob.h"
+#include "skymapcomposite.h"
+#include "auxiliary/QProgressIndicator.h"
+#include "dialogs/finddialog.h"
+#include "ekos/ekosmanager.h"
+#include "ekos/capture/sequencejob.h"
 #include "skyobjects/starobject.h"
-#include "ksnotification.h"
+
+#include <KNotifications/KNotification>
 
 #define BAD_SCORE               -1000
 #define MAX_FAILURE_ATTEMPTS    3
@@ -73,37 +66,6 @@ Scheduler::Scheduler()
     QDBusConnection::sessionBus().registerObject("/KStars/Ekos/Scheduler", this);
 
     dirPath   = QUrl::fromLocalFile(QDir::homePath());
-    state     = SCHEDULER_IDLE;
-    ekosState = EKOS_IDLE;
-    indiState = INDI_IDLE;
-
-    startupState  = STARTUP_IDLE;
-    shutdownState = SHUTDOWN_IDLE;
-
-    parkWaitState = PARKWAIT_IDLE;
-
-    currentJob          = nullptr;
-    geo                 = nullptr;
-    captureBatch        = 0;
-    jobUnderEdit        = -1;
-    mDirty              = false;
-    jobEvaluationOnly   = false;
-    loadAndSlewProgress = false;
-    autofocusCompleted  = false;
-    preemptiveShutdown  = false;
-
-    Dawn = -1;
-    Dusk = -1;
-
-    indiConnectFailureCount = 0;
-    focusFailureCount       = 0;
-    guideFailureCount       = 0;
-    alignFailureCount       = 0;
-    captureFailureCount     = 0;
-
-    noWeatherCounter = 0;
-
-    weatherStatus = IPS_IDLE;
 
     // Get current KStars time and set seconds to zero
     QDateTime currentDateTime = KStarsData::Instance()->lt();
@@ -241,13 +203,13 @@ void Scheduler::watchJobChanges(bool enable)
         connect(profileCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(setDirty()));
 
         connect(profileCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(setDirty()));
-        connect(stepsButtonGroup, SIGNAL(buttonToggled(int, bool)), this, SLOT(setDirty()));
-        connect(startupButtonGroup, SIGNAL(buttonToggled(int, bool)), this, SLOT(setDirty()));
-        connect(constraintButtonGroup, SIGNAL(buttonToggled(int, bool)), this, SLOT(setDirty()));
-        connect(completionButtonGroup, SIGNAL(buttonToggled(int, bool)), this, SLOT(setDirty()));
+        connect(stepsButtonGroup, SIGNAL(buttonToggled(int,bool)), this, SLOT(setDirty()));
+        connect(startupButtonGroup, SIGNAL(buttonToggled(int,bool)), this, SLOT(setDirty()));
+        connect(constraintButtonGroup, SIGNAL(buttonToggled(int,bool)), this, SLOT(setDirty()));
+        connect(completionButtonGroup, SIGNAL(buttonToggled(int,bool)), this, SLOT(setDirty()));
 
-        connect(startupProcedureButtonGroup, SIGNAL(buttonToggled(int, bool)), this, SLOT(setDirty()));
-        connect(shutdownProcedureGroup, SIGNAL(buttonToggled(int, bool)), this, SLOT(setDirty()));
+        connect(startupProcedureButtonGroup, SIGNAL(buttonToggled(int,bool)), this, SLOT(setDirty()));
+        connect(shutdownProcedureGroup, SIGNAL(buttonToggled(int,bool)), this, SLOT(setDirty()));
 
         connect(culminationOffset, SIGNAL(editingFinished()), this, SLOT(setDirty()));
         connect(startupTimeEdit, SIGNAL(editingFinished()), this, SLOT(setDirty()));
@@ -1529,12 +1491,12 @@ void Scheduler::wakeUpScheduler()
     }
 }
 
-double Scheduler::findAltitude(const SkyPoint &target, const QDateTime when)
+double Scheduler::findAltitude(const SkyPoint &target, const QDateTime &when)
 {
     // Make a copy
     SkyPoint p = target;
     QDateTime lt(when.date(), QTime());
-    KStarsDateTime ut = KStarsData::Instance()->geo()->LTtoUT(lt);
+    KStarsDateTime ut = KStarsData::Instance()->geo()->LTtoUT(KStarsDateTime(lt));
 
     KStarsDateTime myUT = ut.addSecs(when.time().msecsSinceStartOfDay() / 1000);
 
@@ -1550,16 +1512,16 @@ bool Scheduler::calculateAltitudeTime(SchedulerJob *job, double minAltitude, dou
     double earlyDawn = Dawn - Options::preDawnTime() / (60.0 * 24.0);
     double altitude  = 0;
     QDateTime lt(KStarsData::Instance()->lt().date(), QTime());
-    KStarsDateTime ut = geo->LTtoUT(lt);
+    KStarsDateTime ut = geo->LTtoUT(KStarsDateTime(lt));
 
     SkyPoint target = job->getTargetCoords();
 
     QTime now       = KStarsData::Instance()->lt().time();
     double fraction = now.hour() + now.minute() / 60.0 + now.second() / 3600;
-    double rawFrac  = 0;
 
     for (double hour = fraction; hour < (fraction + 24); hour += 1.0 / 60.0)
     {
+        double rawFrac  = 0;
         KStarsDateTime myUT = ut.addSecs(hour * 3600.0);
 
         rawFrac = (hour > 24 ? (hour - 24) : hour) / 24.0;
@@ -1617,7 +1579,7 @@ bool Scheduler::calculateCulmination(SchedulerJob *job)
     o.EquatorialToHorizontal(KStarsData::Instance()->lst(), KStarsData::Instance()->geo()->lat());
 
     QDateTime midnight(KStarsData::Instance()->lt().date(), QTime());
-    KStarsDateTime dt = geo->LTtoUT(midnight);
+    KStarsDateTime dt = geo->LTtoUT(KStarsDateTime(midnight));
 
     QTime transitTime = o.transitTime(dt, geo);
 
@@ -1850,7 +1812,7 @@ double Scheduler::getCurrentMoonSeparation(SchedulerJob *job)
     // Get target altitude given the time
     SkyPoint p = job->getTargetCoords();
     QDateTime midnight(KStarsData::Instance()->lt().date(), QTime());
-    KStarsDateTime ut   = geo->LTtoUT(midnight);
+    KStarsDateTime ut   = geo->LTtoUT(KStarsDateTime(midnight));
     KStarsDateTime myUT = ut.addSecs(KStarsData::Instance()->lt().time().msecsSinceStartOfDay() / 1000);
     CachingDms LST      = geo->GSTtoLST(myUT.gst());
     p.EquatorialToHorizontal(&LST, geo->lat());
@@ -1872,14 +1834,14 @@ int16_t Scheduler::getMoonSeparationScore(SchedulerJob *job, QDateTime when)
     // Get target altitude given the time
     SkyPoint p = job->getTargetCoords();
     QDateTime midnight(when.date(), QTime());
-    KStarsDateTime ut   = geo->LTtoUT(midnight);
+    KStarsDateTime ut   = geo->LTtoUT(KStarsDateTime(midnight));
     KStarsDateTime myUT = ut.addSecs(when.time().msecsSinceStartOfDay() / 1000);
     CachingDms LST      = geo->GSTtoLST(myUT.gst());
     p.EquatorialToHorizontal(&LST, geo->lat());
     double currentAlt = p.alt().Degrees();
 
     // Update moon
-    ut = geo->LTtoUT(when);
+    ut = geo->LTtoUT(KStarsDateTime(when));
     KSNumbers ksnum(ut.djd());
     LST = geo->GSTtoLST(ut.gst());
     moon->updateCoords(&ksnum, true, geo->lat(), &LST, true);
@@ -1948,8 +1910,9 @@ void Scheduler::executeJob(SchedulerJob *job)
 {
     if (job->getCompletionCondition() == SchedulerJob::FINISH_SEQUENCE && Options::rememberJobProgress())
     {
-        QString targetName = job->getName().replace(" ", "");
+        QString targetName = job->getName().replace(' ', "");
         QList<QVariant> targetArgs;
+
         targetArgs.append(targetName);
         captureInterface->callWithArgumentList(QDBus::AutoDetect, "setTargetName", targetArgs);
     }
@@ -2641,7 +2604,7 @@ void Scheduler::checkJobStage()
     }
 
     // #4 Check if we're not at dawn
-    if (currentJob->getEnforceTwilight() && KStarsData::Instance()->lt() > preDawnDateTime)
+    if (currentJob->getEnforceTwilight() && KStarsData::Instance()->lt() > KStarsDateTime(preDawnDateTime))
     {
         // If either mount or dome are not parked, we shutdown if we approach dawn
         if (isMountParked() == false || (parkDomeCheck->isEnabled() && isDomeParked() == false))
@@ -2966,7 +2929,7 @@ void Scheduler::checkJobStage()
             }
             else if (guideStatus == Ekos::GUIDE_CALIBRATION_ERROR || guideStatus == Ekos::GUIDE_ABORTED)
             {
-                if (guideStatus == Ekos::GUIDE_ABORTED || guideStatus == Ekos::GUIDE_CALIBRATION_ERROR)
+                if (guideStatus == Ekos::GUIDE_ABORTED)
                     appendLogText(i18n("%1 guiding failed!", currentJob->getName()));
                 else
                     appendLogText(i18n("%1 calibration failed!", currentJob->getName()));
@@ -3500,7 +3463,7 @@ void Scheduler::save()
 {
     QUrl backupCurrent = schedulerURL;
 
-    if (schedulerURL.toLocalFile().startsWith("/tmp/") || schedulerURL.toLocalFile().contains("/Temp"))
+    if (schedulerURL.toLocalFile().startsWith(QLatin1String("/tmp/")) || schedulerURL.toLocalFile().contains("/Temp"))
         schedulerURL.clear();
 
     // If no changes made, return.
@@ -3925,7 +3888,7 @@ void Scheduler::startCapture()
 {
     captureInterface->call(QDBus::AutoDetect, "clearSequenceQueue");
 
-    QString targetName = currentJob->getName().replace(" ", "");
+    QString targetName = currentJob->getName().replace(' ', "");
     QList<QVariant> targetArgs;
     targetArgs.append(targetName);
     captureInterface->callWithArgumentList(QDBus::AutoDetect, "setTargetName", targetArgs);
@@ -4146,7 +4109,7 @@ void Scheduler::parkMount()
         else if (parkWaitState == PARKWAIT_PARK)
             parkWaitState = PARKWAIT_PARKING;
     }
-    else if (status == Mount::PARKING_OK)
+    else
     {
         appendLogText(i18n("Mount already parked."));
 
@@ -4179,7 +4142,7 @@ void Scheduler::unParkMount()
         else if (parkWaitState == PARKWAIT_UNPARK)
             parkWaitState = PARKWAIT_UNPARKING;
     }
-    else if (status == Mount::UNPARKING_OK)
+    else
     {
         appendLogText(i18n("Mount already unparked."));
 
@@ -4292,7 +4255,7 @@ void Scheduler::parkDome()
 
         currentOperationTime.start();
     }
-    else if (status == Dome::PARKING_OK)
+    else
     {
         appendLogText(i18n("Dome already parked."));
         shutdownState = SHUTDOWN_SCRIPT;
@@ -4312,7 +4275,7 @@ void Scheduler::unParkDome()
 
         currentOperationTime.start();
     }
-    else if (status == Dome::UNPARKING_OK)
+    else
     {
         appendLogText(i18n("Dome already unparked."));
         startupState = STARTUP_UNPARK_MOUNT;
@@ -4412,7 +4375,7 @@ void Scheduler::parkCap()
 
         currentOperationTime.start();
     }
-    else if (status == DustCap::PARKING_OK)
+    else
     {
         appendLogText(i18n("Cap already parked."));
         shutdownState = SHUTDOWN_PARK_MOUNT;
@@ -4432,7 +4395,7 @@ void Scheduler::unParkCap()
 
         currentOperationTime.start();
     }
-    else if (status == DustCap::UNPARKING_OK)
+    else
     {
         appendLogText(i18n("Cap already unparked."));
         startupState = STARTUP_COMPLETE;
@@ -4578,7 +4541,7 @@ void Scheduler::startMosaicTool()
         return;
     }
 
-    Mosaic mosaicTool(this);
+    Mosaic mosaicTool;
 
     SkyPoint center;
     center.setRA0(ra);
@@ -4587,8 +4550,6 @@ void Scheduler::startMosaicTool()
     mosaicTool.setCenter(center);
     mosaicTool.calculateFOV();
     mosaicTool.adjustSize();
-
-    int batchCount = 1;
 
     if (mosaicTool.exec() == QDialog::Accepted)
     {
@@ -4605,7 +4566,8 @@ void Scheduler::startMosaicTool()
                  << mosaicTool.getJobsDir();
 
         QString outputDir  = mosaicTool.getJobsDir();
-        QString targetName = nameEdit->text().simplified().remove(" ");
+        QString targetName = nameEdit->text().simplified().remove(' ');
+        int batchCount = 1;
 
         XMLEle *root = getSequenceJobRoot();
         if (root == nullptr)
@@ -4616,14 +4578,14 @@ void Scheduler::startMosaicTool()
         foreach (OneTile *oneJob, mosaicTool.getJobs())
         {
             QString prefix = QString("%1-Part%2").arg(targetName).arg(batchCount++);
-            prefix         = prefix.replace(" ", "-");
 
+            prefix.replace(' ', '-');
             nameEdit->setText(prefix);
 
             if (createJobSequence(root, prefix, outputDir) == false)
                 return;
 
-            QString filename = QString("%1/%2.esq").arg(outputDir).arg(prefix);
+            QString filename = QString("%1/%2.esq").arg(outputDir, prefix);
             sequenceEdit->setText(filename);
             sequenceURL = QUrl::fromLocalFile(filename);
 
@@ -4642,7 +4604,7 @@ void Scheduler::startMosaicTool()
             queueTable->removeRow(0);
         }
 
-        QUrl mosaicURL = QUrl::fromLocalFile((QString("%1/%2_mosaic.esl").arg(outputDir).arg(targetName)));
+        QUrl mosaicURL = QUrl::fromLocalFile((QString("%1/%2_mosaic.esl").arg(outputDir, targetName)));
 
         if (saveScheduler(mosaicURL))
         {
@@ -4716,7 +4678,7 @@ bool Scheduler::createJobSequence(XMLEle *root, const QString &prefix, const QSt
                 }
                 else if (!strcmp(tagXMLEle(subEP), "FITSDirectory"))
                 {
-                    editXMLEle(subEP, QString("%1/%2").arg(outputDir).arg(prefix).toLatin1().constData());
+                    editXMLEle(subEP, QString("%1/%2").arg(outputDir, prefix).toLatin1().constData());
                 }
             }
         }
@@ -4724,7 +4686,7 @@ bool Scheduler::createJobSequence(XMLEle *root, const QString &prefix, const QSt
 
     QDir().mkpath(outputDir);
 
-    QString filename = QString("%1/%2.esq").arg(outputDir).arg(prefix);
+    QString filename = QString("%1/%2.esq").arg(outputDir, prefix);
     FILE *outputFile = fopen(filename.toLatin1().constData(), "w");
 
     if (outputFile == nullptr)
@@ -5095,7 +5057,8 @@ SequenceJob *Scheduler::processJobInfo(XMLEle *root, SchedulerJob *schedJob)
     // FITS Dir
     QString finalFITSDir = job->getFITSDir();
 
-    QString targetName = schedJob->getName().remove(" ");
+    QString targetName = schedJob->getName().remove(' ');
+
     finalFITSDir += QLatin1Literal("/") + targetName + QLatin1Literal("/") + frameType;
     if ((job->getFrameType() == FRAME_LIGHT || job->getFrameType() == FRAME_FLAT) && filterType.isEmpty() == false)
         finalFITSDir += QLatin1Literal("/") + filterType;

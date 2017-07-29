@@ -17,30 +17,25 @@
 
 #include "modcalcvizequinox.h"
 
-#include <cmath> //fabs()
+#include "dms.h"
+#include "kstarsdata.h"
+#include "skyobjects/kssun.h"
+#include "widgets/dmsbox.h"
 
-#include <KPlotWidget>
+#include <KLineEdit>
 #include <KPlotAxis>
 #include <KPlotObject>
 #include <KPlotPoint>
-#include <KLocalizedString>
-#include <KMessageBox>
-#include <KLineEdit>
 
-#include "dms.h"
-#include "kstarsdata.h"
-#include "kstarsdatetime.h"
-#include "ksnumbers.h"
-#include "skyobjects/kssun.h"
-#include "widgets/dmsbox.h"
+#include <cmath>
 
 modCalcEquinox::modCalcEquinox(QWidget *parentSplit) : QFrame(parentSplit), dSpring(), dSummer(), dAutumn(), dWinter()
 {
     setupUi(this);
 
     connect(Year, SIGNAL(valueChanged(int)), this, SLOT(slotCompute()));
-    connect(InputFileBatch, SIGNAL(urlSelected(const QUrl &)), this, SLOT(slotCheckFiles()));
-    connect(OutputFileBatch, SIGNAL(urlSelected(const QUrl &)), this, SLOT(slotCheckFiles()));
+    connect(InputFileBatch, SIGNAL(urlSelected(QUrl)), this, SLOT(slotCheckFiles()));
+    connect(OutputFileBatch, SIGNAL(urlSelected(QUrl)), this, SLOT(slotCheckFiles()));
     connect(RunButtonBatch, SIGNAL(clicked()), this, SLOT(slotRunBatch()));
     connect(ViewButtonBatch, SIGNAL(clicked()), this, SLOT(slotViewBatch()));
 
@@ -282,16 +277,16 @@ KStarsDateTime modCalcEquinox::findEquinox(int year, bool Spring, KPlotObject *e
     const int month = Spring ? 2 : 8;
     int i           = QDate(year, month, 1).dayOfYear();
     double dec1, dec2;
-    dec2 = ecl->points()[i]->y();
+    dec2 = ecl->points().at(i)->y();
     do
     {
         ++i;
         dec1 = dec2;
-        dec2 = ecl->points()[i]->y();
+        dec2 = ecl->points().at(i)->y();
     } while (dec1 * dec2 > 0.0); //when dec1*dec2<0.0, we bracket the zero
 
-    double x1 = ecl->points()[i - 1]->x();
-    double x2 = ecl->points()[i]->x();
+    double x1 = ecl->points().at(i-1)->x();
+    double x2 = ecl->points().at(i)->x();
     double d  = fabs(dec2 - dec1);
     double f  = 1.0 - fabs(dec2) / d; //fractional distance of the zero, from point1 to point2
 
@@ -333,7 +328,8 @@ KStarsDateTime modCalcEquinox::findSolstice(int year, bool Summer)
     } while (y3 * sgn > y2 * sgn);
 
     //Ok, now y2 is larger(smaller) than both y3 and y1.
-    jd2 = jd3 - 1.0;
+    // Never read back
+//    jd2 = jd3 - 1.0;
     jd1 = jd3 - 2.0;
 
     //Choose a new starting jd2 that follows the golden ratio:
@@ -362,7 +358,8 @@ KStarsDateTime modCalcEquinox::findSolstice(int year, bool Summer)
             else
             {
                 jd3 = jd2;
-                y3  = y2;
+                // Never read back
+//                y3  = y2;
                 jd2 = jd4;
                 y2  = y4;
             }
@@ -372,7 +369,8 @@ KStarsDateTime modCalcEquinox::findSolstice(int year, bool Summer)
             if (jd4 > jd2)
             {
                 jd3 = jd4;
-                y3  = y4;
+                // Never read back
+//                y3  = y4;
             }
             else
             {

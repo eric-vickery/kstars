@@ -17,6 +17,7 @@
 
 #include "finddialog.h"
 
+#include "kstars.h"
 #include "kstarsdata.h"
 #include "Options.h"
 #include "detaildialog.h"
@@ -98,10 +99,10 @@ FindDialog::FindDialog(QWidget *parent) : QDialog(parent), timer(0), m_targetObj
     ui->SearchList->setModel(sortModel);
 
     // Connect signals to slots
-    connect(ui->SearchBox, SIGNAL(textChanged(const QString &)), SLOT(enqueueSearch()));
+    connect(ui->SearchBox, SIGNAL(textChanged(QString)), SLOT(enqueueSearch()));
     connect(ui->SearchBox, SIGNAL(returnPressed()), SLOT(slotOk()));
     connect(ui->FilterType, SIGNAL(activated(int)), this, SLOT(enqueueSearch()));
-    connect(ui->SearchList, SIGNAL(doubleClicked(const QModelIndex &)), SLOT(slotOk()));
+    connect(ui->SearchList, SIGNAL(doubleClicked(QModelIndex)), SLOT(slotOk()));
 
     // Set focus to object name edit
     ui->SearchBox->setFocus();
@@ -288,7 +289,8 @@ SkyObject *FindDialog::selectedObject() const
 {
     QModelIndex i = ui->SearchList->currentIndex();
     QVariant sObj = sortModel->data(sortModel->index(i.row(), 0), SkyObjectListModel::SkyObjectRole);
-    return (SkyObject *)sObj.value<void *>();
+
+    return reinterpret_cast<SkyObject*>(sObj.value<void *>());
 }
 
 void FindDialog::enqueueSearch()

@@ -17,6 +17,7 @@
 #include "guimanager.h"
 #include "indilistener.h"
 #include "kspaths.h"
+#include "kstars.h"
 #include "kstarsdata.h"
 #include "Options.h"
 #include "servermanager.h"
@@ -53,8 +54,8 @@ DriverManagerUI::DriverManagerUI(QWidget *parent) : QFrame(parent)
     connected    = QIcon::fromTheme("network-connect", QIcon(":/icons/breeze/default/network-connect.svg"));
     disconnected = QIcon::fromTheme("network-disconnect", QIcon(":/icons/breeze/default/network-disconnect.svg"));
 
-    connect(localTreeWidget, SIGNAL(itemDoubleClicked(QTreeWidgetItem *, int)), this,
-            SLOT(makePortEditable(QTreeWidgetItem *, int)));
+    connect(localTreeWidget, SIGNAL(itemDoubleClicked(QTreeWidgetItem*,int)), this,
+            SLOT(makePortEditable(QTreeWidgetItem*,int)));
 }
 
 void DriverManagerUI::makePortEditable(QTreeWidgetItem *selectedItem, int column)
@@ -83,10 +84,6 @@ DriverManager::DriverManager(QWidget *parent) : QDialog(parent)
 #endif
 
     currentPort = Options::serverPortStart().toInt() - 1;
-    lastGroup   = nullptr;
-    lastDevice  = nullptr;
-
-    connectionMode = SERVER_CLIENT;
 
     QVBoxLayout *mainLayout = new QVBoxLayout;
     ui                      = new DriverManagerUI(this);
@@ -97,21 +94,19 @@ DriverManager::DriverManager(QWidget *parent) : QDialog(parent)
     QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Close);
     mainLayout->addWidget(buttonBox);
 
-    QObject::connect(buttonBox, SIGNAL(rejected()), this, SLOT(close()));
+    connect(buttonBox, SIGNAL(rejected()), this, SLOT(close()));
 
-    lastGroup = nullptr;
+    connect(ui->addB, SIGNAL(clicked()), this, SLOT(addINDIHost()));
+    connect(ui->modifyB, SIGNAL(clicked()), this, SLOT(modifyINDIHost()));
+    connect(ui->removeB, SIGNAL(clicked()), this, SLOT(removeINDIHost()));
 
-    QObject::connect(ui->addB, SIGNAL(clicked()), this, SLOT(addINDIHost()));
-    QObject::connect(ui->modifyB, SIGNAL(clicked()), this, SLOT(modifyINDIHost()));
-    QObject::connect(ui->removeB, SIGNAL(clicked()), this, SLOT(removeINDIHost()));
-
-    QObject::connect(ui->connectHostB, SIGNAL(clicked()), this, SLOT(activateHostConnection()));
-    QObject::connect(ui->disconnectHostB, SIGNAL(clicked()), this, SLOT(activateHostDisconnection()));
-    QObject::connect(ui->runServiceB, SIGNAL(clicked()), this, SLOT(activateRunService()));
-    QObject::connect(ui->stopServiceB, SIGNAL(clicked()), this, SLOT(activateStopService()));
-    QObject::connect(ui->localTreeWidget, SIGNAL(itemClicked(QTreeWidgetItem *, int)), this, SLOT(updateLocalTab()));
-    QObject::connect(ui->clientTreeWidget, SIGNAL(itemClicked(QTreeWidgetItem *, int)), this, SLOT(updateClientTab()));
-    QObject::connect(ui->localTreeWidget, SIGNAL(expanded(const QModelIndex &)), this, SLOT(resizeDeviceColumn()));
+    connect(ui->connectHostB, SIGNAL(clicked()), this, SLOT(activateHostConnection()));
+    connect(ui->disconnectHostB, SIGNAL(clicked()), this, SLOT(activateHostDisconnection()));
+    connect(ui->runServiceB, SIGNAL(clicked()), this, SLOT(activateRunService()));
+    connect(ui->stopServiceB, SIGNAL(clicked()), this, SLOT(activateStopService()));
+    connect(ui->localTreeWidget, SIGNAL(itemClicked(QTreeWidgetItem*,int)), this, SLOT(updateLocalTab()));
+    connect(ui->clientTreeWidget, SIGNAL(itemClicked(QTreeWidgetItem*,int)), this, SLOT(updateClientTab()));
+    connect(ui->localTreeWidget, SIGNAL(expanded(QModelIndex)), this, SLOT(resizeDeviceColumn()));
 
     // Do not use KSPaths here, this is for INDI
     if (Options::indiDriversDir().isEmpty())
@@ -154,8 +149,7 @@ void DriverManager::processDeviceStatus(DriverInfo *dv)
         if (ui->localTreeWidget->currentItem())
             currentDriver = ui->localTreeWidget->currentItem()->text(LOCAL_NAME_COLUMN);
 
-        foreach (QTreeWidgetItem *item,
-                 ui->localTreeWidget->findItems(dv->getTreeLabel(), Qt::MatchExactly | Qt::MatchRecursive))
+        for (auto &item : ui->localTreeWidget->findItems(dv->getTreeLabel(), Qt::MatchExactly | Qt::MatchRecursive))
         {
             item->setText(LOCAL_VERSION_COLUMN, dv->getVersion());
 
@@ -237,8 +231,7 @@ void DriverManager::processDeviceStatus(DriverInfo *dv)
     }
     else
     {
-        foreach (QTreeWidgetItem *item,
-                 ui->clientTreeWidget->findItems(dv->getName(), Qt::MatchExactly, HOST_NAME_COLUMN))
+        for (auto &item : ui->clientTreeWidget->findItems(dv->getName(), Qt::MatchExactly, HOST_NAME_COLUMN))
         {
             if (dv->getClientState())
             {
@@ -260,11 +253,11 @@ void DriverManager::getUniqueHosts(QList<DriverInfo *> &dList, QList<QList<Drive
 {
     bool found = false;
 
-    foreach (DriverInfo *dv, dList)
+    for (DriverInfo *dv : dList)
     {
         QList<DriverInfo *> uList;
 
-        foreach (DriverInfo *idv, dList)
+        for (DriverInfo *idv : dList)
         {
             if (dv->getHost() == idv->getHost() && dv->getPort() == idv->getPort())
             {
@@ -285,9 +278,9 @@ void DriverManager::getUniqueHosts(QList<DriverInfo *> &dList, QList<QList<Drive
 
                 found = false;
 
-                foreach (QList<DriverInfo *> qdi, uHosts)
+                for (auto &qdi : uHosts)
                 {
-                    foreach (DriverInfo *di, qdi)
+                    for (DriverInfo *di : qdi)
                     {
                         if (di == idv)
                         {
@@ -322,7 +315,7 @@ bool DriverManager::startDevices(QList<DriverInfo *> &dList)
     if (Options::iNDILogging())
         qDebug() << "INDI: Starting local drivers...";
 
-    foreach (QList<DriverInfo *> qdv, uHosts)
+    for (auto &qdv : uHosts)
     {
         if (qdv.empty())
             continue;
@@ -362,7 +355,7 @@ bool DriverManager::startDevices(QList<DriverInfo *> &dList)
         if (Options::iNDILogging())
             qDebug() << "INDI: INDI Server started locally on port " << port;
 
-        foreach (DriverInfo *dv, qdv)
+        for (DriverInfo *dv : qdv)
         {
             if (serverManager->startDriver(dv) == false)
             {
@@ -380,11 +373,11 @@ bool DriverManager::startDevices(QList<DriverInfo *> &dList)
 
         clientManager = new ClientManager();
 
-        foreach (DriverInfo *dv, qdv)
+        for (DriverInfo *dv : qdv)
             clientManager->appendManagedDriver(dv);
 
-        connect(clientManager, SIGNAL(connectionFailure(ClientManager *)), this,
-                SLOT(processClientTermination(ClientManager *)));
+        connect(clientManager, SIGNAL(connectionFailure(ClientManager*)), this,
+                SLOT(processClientTermination(ClientManager*)));
 
         clientManager->setServer(qdv.at(0)->getHost().toLatin1().constData(), ((uint)port));
 
@@ -430,7 +423,7 @@ bool DriverManager::startDevices(QList<DriverInfo *> &dList)
             msgBox->setIcon(QMessageBox::Critical);
             msgBox->show();
 
-            foreach (DriverInfo *dv, qdv)
+            for (DriverInfo *dv : qdv)
                 processDeviceStatus(dv);
 
             GUIManager::Instance()->removeClient(clientManager);
@@ -449,7 +442,7 @@ void DriverManager::stopDevices(const QList<DriverInfo *> &dList)
         qDebug() << "INDI: Stopping local drivers...";
 
     // #1 Disconnect all clients
-    foreach (DriverInfo *dv, dList)
+    for (DriverInfo *dv : dList)
     {
         ClientManager *cm = dv->getClientManager();
 
@@ -469,7 +462,7 @@ void DriverManager::stopDevices(const QList<DriverInfo *> &dList)
     }
 
     // #2 Disconnect all servers
-    foreach (DriverInfo *dv, dList)
+    for (DriverInfo *dv : dList)
     {
         ServerManager *sm = dv->getServerManager();
 
@@ -552,7 +545,7 @@ void DriverManager::updateClientTab()
     QString hostname = item->text(HOST_NAME_COLUMN);
     QString hostport = item->text(HOST_PORT_COLUMN);
 
-    foreach (DriverInfo *dv, driversList)
+    for (auto &dv : driversList)
     {
         if (hostname == dv->getName() && hostport == dv->getPort())
         {
@@ -643,7 +636,7 @@ void DriverManager::processServerTermination(ServerManager *server)
     if (server == nullptr)
         return;
 
-    foreach (DriverInfo *dv, driversList)
+    for (auto &dv : driversList)
         if (dv->getServerManager() == server)
         {
             dv->setServerState(false);
@@ -669,7 +662,7 @@ void DriverManager::processRemoteTree(bool dState)
     if (!currentItem)
         return;
 
-    foreach (DriverInfo *dv, driversList)
+    for (auto &dv : driversList)
     {
         if (dv->getDriverSource() != HOST_SOURCE)
             continue;
@@ -712,8 +705,8 @@ bool DriverManager::connectRemoteHost(DriverInfo *dv)
 
     clientManager->appendManagedDriver(dv);
 
-    connect(clientManager, SIGNAL(connectionFailure(ClientManager *)), this,
-            SLOT(processClientTermination(ClientManager *)));
+    connect(clientManager, SIGNAL(connectionFailure(ClientManager*)), this,
+            SLOT(processClientTermination(ClientManager*)));
 
     clientManager->setServer(dv->getHost().toLatin1().constData(), (uint)(dv->getPort().toInt()));
 
@@ -902,7 +895,7 @@ bool DriverManager::readINDIHosts()
             dv->setHostParameters(hHost, hPort);
             dv->setDriverSource(HOST_SOURCE);
 
-            connect(dv, SIGNAL(deviceStateChanged(DriverInfo *)), this, SLOT(processDeviceStatus(DriverInfo *)));
+            connect(dv, SIGNAL(deviceStateChanged(DriverInfo*)), this, SLOT(processDeviceStatus(DriverInfo*)));
 
             driversList.append(dv);
 
@@ -955,10 +948,10 @@ bool DriverManager::readXMLDrivers()
     indiDir.setFilter(QDir::Files | QDir::NoSymLinks);
     QFileInfoList list = indiDir.entryInfoList();
 
-    foreach (QFileInfo fileInfo, list)
+    for (auto &fileInfo : list)
     {
         // libindi 0.7.1: Skip skeleton files
-        if (fileInfo.fileName().endsWith("_sk.xml"))
+        if (fileInfo.fileName().endsWith(QLatin1String("_sk.xml")))
             continue;
 
         if (fileInfo.fileName() == "drivers.xml")
@@ -974,7 +967,7 @@ bool DriverManager::readXMLDrivers()
             }
         }
 
-        driverName = QString("%1/%2").arg(driversDir).arg(fileInfo.fileName());
+        driverName = QString("%1/%2").arg(driversDir, fileInfo.fileName());
         processXMLDriver(driverName);
     }
 
@@ -996,7 +989,7 @@ void DriverManager::processXMLDriver(QString &driverName)
     XMLEle *root      = nullptr;
     XMLEle *ep        = nullptr;
 
-    if (driverName.endsWith("drivers.xml"))
+    if (driverName.endsWith(QLatin1String("drivers.xml")))
         driverSource = PRIMARY_XML;
     else
         driverSource = THIRD_PARTY_XML;
@@ -1211,8 +1204,6 @@ bool DriverManager::buildDriverElement(XMLEle *root, QTreeWidgetItem *DGroup, De
     device->setText(LOCAL_VERSION_COLUMN, version);
     device->setText(LOCAL_PORT_COLUMN, port);
 
-    lastDevice = device;
-
     //if ((driverSource == PRIMARY_XML) && driversStringList.contains(driver) == false)
     if (groupType == KSTARS_TELESCOPE && driversStringList.contains(driver) == false)
         driversStringList.append(driver);
@@ -1230,14 +1221,14 @@ bool DriverManager::buildDriverElement(XMLEle *root, QTreeWidgetItem *DGroup, De
     if (vMap.isEmpty() == false)
         dv->setAuxInfo(vMap);
 
-    connect(dv, SIGNAL(deviceStateChanged(DriverInfo *)), this, SLOT(processDeviceStatus(DriverInfo *)));
+    connect(dv, SIGNAL(deviceStateChanged(DriverInfo*)), this, SLOT(processDeviceStatus(DriverInfo*)));
 
     driversList.append(dv);
 
     return true;
 }
 
-bool DriverManager::checkDriverAvailability(QString driver)
+bool DriverManager::checkDriverAvailability(const QString &driver)
 {
     QString indiServerDir = Options::indiServer();
     if (Options::indiServerIsInternal())
@@ -1245,7 +1236,7 @@ bool DriverManager::checkDriverAvailability(QString driver)
     else
         indiServerDir = QFileInfo(Options::indiServer()).dir().path();
 
-    QFile driverFile(indiServerDir + "/" + driver);
+    QFile driverFile(indiServerDir + '/' + driver);
 
     return driverFile.exists();
 }
@@ -1316,7 +1307,7 @@ void DriverManager::updateCustomDrivers()
             dv->setAuxInfo(vMap);
         }
 
-        connect(dv, SIGNAL(deviceStateChanged(DriverInfo *)), this, SLOT(processDeviceStatus(DriverInfo *)));
+        connect(dv, SIGNAL(deviceStateChanged(DriverInfo*)), this, SLOT(processDeviceStatus(DriverInfo*)));
         driversList.append(dv);
     }
 
@@ -1382,7 +1373,7 @@ void DriverManager::addINDIHost()
 
         hostItem->setDriverSource(HOST_SOURCE);
 
-        connect(hostItem, SIGNAL(deviceStateChanged(DriverInfo *)), this, SLOT(processDeviceStatus(DriverInfo *)));
+        connect(hostItem, SIGNAL(deviceStateChanged(DriverInfo*)), this, SLOT(processDeviceStatus(DriverInfo*)));
 
         driversList.append(hostItem);
 
@@ -1506,7 +1497,7 @@ void DriverManager::saveHosts()
 
 DriverInfo *DriverManager::findDriverByName(const QString &name)
 {
-    foreach (DriverInfo *dv, driversList)
+    for (auto &dv : driversList)
     {
         if (dv->getName() == name)
             return dv;
@@ -1517,7 +1508,7 @@ DriverInfo *DriverManager::findDriverByName(const QString &name)
 
 DriverInfo *DriverManager::findDriverByLabel(const QString &label)
 {
-    foreach (DriverInfo *dv, driversList)
+    for (auto &dv : driversList)
     {
         if (dv->getTreeLabel() == label)
             return dv;
@@ -1528,7 +1519,7 @@ DriverInfo *DriverManager::findDriverByLabel(const QString &label)
 
 DriverInfo *DriverManager::findDriverByExec(const QString &exec)
 {
-    foreach (DriverInfo *dv, driversList)
+    for (auto &dv : driversList)
     {
         if (dv->getDriver() == exec)
             return dv;
@@ -1542,13 +1533,16 @@ QString DriverManager::getUniqueDeviceLabel(const QString &label)
     int nset            = 0;
     QString uniqueLabel = label;
 
-    foreach (ClientManager *cm, clients)
-        foreach (INDI::BaseDevice *dv, cm->getDevices())
+    for (auto &cm : clients)
+    {
+        auto& devices = cm->getDevices();
+
+        for (auto &dv : devices)
         {
             if (label == QString(dv->getDeviceName()))
                 nset++;
         }
-
+    }
     if (nset > 0)
         uniqueLabel = QString("%1 %2").arg(label).arg(nset + 1);
 

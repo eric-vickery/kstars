@@ -9,43 +9,28 @@
 
 #include "telescopewizardprocess.h"
 
-#include <QFile>
-#include <QPixmap>
-#include <QTimer>
-#include <QProgressDialog>
-#include <QStatusBar>
-#include <QDateTime>
-
-#include <KMessageBox>
-
-#include "Options.h"
-#include "kstars.h"
-#include "kstarsdata.h"
-#include "dialogs/timedialog.h"
-#include "ksutils.h"
-
-#include "guimanager.h"
-#include "indilistener.h"
 #include "driverinfo.h"
 #include "drivermanager.h"
-#include "indielement.h"
-#include "indiproperty.h"
-#include "indistd.h"
+#include "guimanager.h"
 #include "indidevice.h"
+#include "indielement.h"
+#include "indilistener.h"
+#include "indiproperty.h"
+#include "kstars.h"
+#include "kstarsdata.h"
+#include "ksutils.h"
+#include "Options.h"
+#include "dialogs/timedialog.h"
 
-#define TIMEOUT_THRESHOLD 20
+#include <QProgressDialog>
+#include <QStatusBar>
 
-telescopeWizardProcess::telescopeWizardProcess(QWidget *parent, const char * /*name*/) : QDialog(parent)
+telescopeWizardProcess::telescopeWizardProcess(QWidget *parent) : QDialog(parent)
 {
-    currentPort  = -1;
-    timeOutCount = 0;
-    progressScan = nullptr;
-    linkRejected = false;
-    ui           = new Ui::telescopeWizard();
-    ui->setupUi(this);
-
-    QString locStr;
     QFile sideIMG;
+
+    ui.reset(new Ui::telescopeWizard());
+    ui->setupUi(this);
 
     if (KSUtils::openDataFile(sideIMG, "wzscope.png"))
         ui->wizardPix->setPixmap(QPixmap(sideIMG.fileName()));
@@ -66,15 +51,15 @@ telescopeWizardProcess::telescopeWizardProcess(QWidget *parent, const char * /*n
     //if (KStars::Instance()->data()->geo()->translatedProvince().isEmpty())
     if (KStars::Instance()->data()->geo()->translatedProvince() == QString("(I18N_EMPTY_MESSAGE)"))
         ui->locationOut->setText(QString("%1, %2")
-                                     .arg(KStars::Instance()->data()->geo()->translatedName())
-                                     .arg(KStars::Instance()->data()->geo()->translatedCountry()));
+                                     .arg(KStars::Instance()->data()->geo()->translatedName(),
+                                          KStars::Instance()->data()->geo()->translatedCountry()));
     else
         ui->locationOut->setText(QString("%1, %2, %3")
-                                     .arg(KStars::Instance()->data()->geo()->translatedName())
-                                     .arg(KStars::Instance()->data()->geo()->translatedProvince())
-                                     .arg(KStars::Instance()->data()->geo()->translatedCountry()));
+                                     .arg(KStars::Instance()->data()->geo()->translatedName(),
+                                          KStars::Instance()->data()->geo()->translatedProvince(),
+                                          KStars::Instance()->data()->geo()->translatedCountry()));
 
-    foreach (DriverInfo *dv, DriverManager::Instance()->getDrivers())
+    for (DriverInfo *dv : DriverManager::Instance()->getDrivers())
     {
         if (dv->getType() == KSTARS_TELESCOPE)
         {
@@ -107,7 +92,6 @@ telescopeWizardProcess::telescopeWizardProcess(QWidget *parent, const char * /*n
 telescopeWizardProcess::~telescopeWizardProcess()
 {
     Options::setShowINDIMessages(INDIMessageBar);
-    delete ui;
     //Reset();
 }
 
@@ -120,10 +104,10 @@ void telescopeWizardProcess::cancelCheck(void)
         case LOCAL_P:
         case PORT_P:
             if (KMessageBox::warningYesNo(0, i18n("Are you sure you want to cancel?")) == KMessageBox::Yes)
-                emit reject();
+                emit rejected();
             break;
         default:
-            emit reject();
+            emit rejected();
             break;
     }
 }
@@ -209,7 +193,7 @@ void telescopeWizardProcess::newLocation()
     KStars::Instance()->slotGeoLocator();
     GeoLocation *geo = KStars::Instance()->data()->geo();
     ui->locationOut->setText(
-        QString("%1, %2, %3").arg(geo->translatedName()).arg(geo->translatedProvince()).arg(geo->translatedCountry()));
+        QString("%1, %2, %3").arg(geo->translatedName(),geo->translatedProvince(), geo->translatedCountry()));
     ui->timeOut->setText(QString().sprintf("%02d:%02d:%02d", KStars::Instance()->data()->lt().time().hour(),
                                            KStars::Instance()->data()->lt().time().minute(),
                                            KStars::Instance()->data()->lt().time().second()));
@@ -228,8 +212,8 @@ void telescopeWizardProcess::establishLink()
         return;
 
     managedDevice.append(dv);
-    connect(INDIListener::Instance(), SIGNAL(newDevice(ISD::GDInterface *)), this,
-            SLOT(processTelescope(ISD::GDInterface *)));
+    connect(INDIListener::Instance(), SIGNAL(newDevice(ISD::GDInterface*)), this,
+            SLOT(processTelescope(ISD::GDInterface*)));
 
     if (ui->portIn->text().isEmpty())
     {
@@ -380,7 +364,6 @@ void telescopeWizardProcess::linkSuccess()
 void telescopeWizardProcess::Reset()
 {
     currentPort  = -1;
-    timeOutCount = 0;
     linkRejected = false;
 
     delete (progressScan);

@@ -15,16 +15,9 @@
  *                                                                         *
  ***************************************************************************/
 
-/* Project Includes */
 #include "ksdssimage.h"
 
-/* KDE Includes */
-
-/* Qt Includes */
-#include <QString>
-#include <QChar>
 #include <QImageReader>
-#include <QImage>
 
 KSDssImage::KSDssImage(const QString &fileName)
 {
@@ -49,8 +42,4 @@ KSDssImage::KSDssImage(const QString &fileName)
         m_Metadata.gen = reader.text("Generation").toInt();
     }
     m_Image = reader.read();
-}
-
-KSDssImage::Metadata::Metadata() : height(0.), width(0.), band('?'), gen(-1), valid(false)
-{
 }

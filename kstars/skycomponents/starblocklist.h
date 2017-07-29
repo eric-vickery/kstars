@@ -19,36 +19,26 @@
 
 #include "typedef.h"
 
-class StarBlock;
 class DeepStarComponent;
+class StarBlock;
 
 /**
  * @class StarBlockList
  * Maintains a list of StarBlocks that contain the stars lying in a single trixel.
  * Takes care of the dynamic loading of stars
+ *
  * @author Akarsh Simha
  * @version 0.1
  */
-
 class StarBlockList
 {
   public:
-    /**
-     * Constructor.
-     */
-    explicit StarBlockList(Trixel trixel);
-
     /**
      * Constructor for deep star catalogs.
      * @param trixel The trixel ID
      * @param parent Pointer to the parent DeepStarComponent
      */
-    StarBlockList(Trixel trixel, DeepStarComponent *parent = nullptr);
-
-    /**
-     * Destructor
-     */
-    ~StarBlockList();
+    explicit StarBlockList(const Trixel &trixel, DeepStarComponent *parent = nullptr);
 
     /**
      * @short Ensures that the list is loaded with stars to given magnitude limit
@@ -67,7 +57,7 @@ class StarBlockList
      *
      * @param Pointer to the StarBlock
      */
-    void setStaticBlock(StarBlock *block);
+    void setStaticBlock(std::shared_ptr<StarBlock> &block);
 
     /**
      * @short  Drops the StarBlock with the given pointer from the list
@@ -82,12 +72,12 @@ class StarBlockList
      * @param  Index of the required block
      * @return The StarBlock requested for, nullptr if index out of bounds
      */
-    inline StarBlock *block(unsigned int i) { return ((i < nBlocks) ? blocks[i] : nullptr); }
+    inline std::shared_ptr<StarBlock> block(unsigned int i) { return ((i < nBlocks) ? blocks[i] : std::shared_ptr<StarBlock>()); }
 
     /**
      * @return a const reference to the contents of this StarBlockList
      */
-    inline const QList<StarBlock *> &contents() const { return blocks; }
+    inline const QList<std::shared_ptr<StarBlock>> &contents() const { return blocks; }
 
     /**
      * @short  Returns the total number of stars in this StarBlockList
@@ -115,11 +105,11 @@ class StarBlockList
 
   private:
     Trixel trixel;
-    unsigned long nStars;
-    long readOffset;
-    float faintMag;
-    QList<StarBlock *> blocks;
-    unsigned int nBlocks;
-    bool staticStars;
-    DeepStarComponent *parent;
+    unsigned long nStars { 0 };
+    long readOffset { 0 };
+    float faintMag { -5 };
+    QList<std::shared_ptr<StarBlock>> blocks;
+    unsigned int nBlocks { 0 };
+    bool staticStars { false };
+    DeepStarComponent *parent { nullptr };
 };

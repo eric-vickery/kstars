@@ -17,18 +17,14 @@
 
 #include "modcalcsidtime.h"
 
-#include <QTextStream>
-#include <QFileDialog>
-
-#include <KLocalizedString>
-#include <KMessageBox>
-#include <KLineEdit>
-
 #include "kstarsdata.h"
 #include "kstarsdatetime.h"
-#include "simclock.h"
 #include "dialogs/locationdialog.h"
-#include "widgets/dmsbox.h"
+
+#include <KLineEdit>
+#include <KMessageBox>
+
+#include <QTextStream>
 
 modCalcSidTime::modCalcSidTime(QWidget *parent) : QFrame(parent)
 {
@@ -39,9 +35,9 @@ modCalcSidTime::modCalcSidTime(QWidget *parent) : QFrame(parent)
 
     // signals and slots connections
     connect(LocationButton, SIGNAL(clicked()), this, SLOT(slotChangeLocation()));
-    connect(Date, SIGNAL(dateChanged(const QDate &)), this, SLOT(slotChangeDate()));
-    connect(LT, SIGNAL(timeChanged(const QTime &)), this, SLOT(slotConvertST(const QTime &)));
-    connect(ST, SIGNAL(timeChanged(const QTime &)), this, SLOT(slotConvertLT(const QTime &)));
+    connect(Date, SIGNAL(dateChanged(QDate)), this, SLOT(slotChangeDate()));
+    connect(LT, SIGNAL(timeChanged(QTime)), this, SLOT(slotConvertST(QTime)));
+    connect(ST, SIGNAL(timeChanged(QTime)), this, SLOT(slotConvertLT(QTime)));
 
     connect(LocationCheckBatch, SIGNAL(clicked()), this, SLOT(slotLocationChecked()));
     connect(DateCheckBatch, SIGNAL(clicked()), this, SLOT(slotDateChecked()));
@@ -49,8 +45,8 @@ modCalcSidTime::modCalcSidTime(QWidget *parent) : QFrame(parent)
     connect(DateCheckBatch, SIGNAL(clicked()), this, SLOT(slotHelpLabel()));
     connect(ComputeComboBatch, SIGNAL(currentIndexChanged(int)), this, SLOT(slotHelpLabel()));
 
-    connect(InputFileBatch, SIGNAL(urlSelected(const QUrl &)), this, SLOT(slotCheckFiles()));
-    connect(OutputFileBatch, SIGNAL(urlSelected(const QUrl &)), this, SLOT(slotCheckFiles()));
+    connect(InputFileBatch, SIGNAL(urlSelected(QUrl)), this, SLOT(slotCheckFiles()));
+    connect(OutputFileBatch, SIGNAL(urlSelected(QUrl)), this, SLOT(slotCheckFiles()));
     connect(LocationButtonBatch, SIGNAL(clicked()), this, SLOT(slotLocationBatch()));
     connect(RunButtonBatch, SIGNAL(clicked()), this, SLOT(slotRunBatch()));
     connect(ViewButtonBatch, SIGNAL(clicked()), this, SLOT(slotViewBatch()));
@@ -59,10 +55,6 @@ modCalcSidTime::modCalcSidTime(QWidget *parent) : QFrame(parent)
     ViewButtonBatch->setEnabled(false);
 
     show();
-}
-
-modCalcSidTime::~modCalcSidTime()
-{
 }
 
 void modCalcSidTime::showCurrentTimeAndLocation()
@@ -290,9 +282,9 @@ void modCalcSidTime::processLines(QTextStream &istream)
                     continue;
                 }
 
-                geoBatch =
-                    KStarsData::Instance()->locationNamed(locationFields[0], locationFields[1], locationFields[2]);
-                if (!geoBatch)
+                geoBatch = KStarsData::Instance()->locationNamed(locationFields[0], locationFields[1],
+                                                                 locationFields[2]);
+                if (geoBatch == nullptr)
                 {
                     qDebug() << "Error: location not found in database: " << locationString;
                     continue;
@@ -303,7 +295,7 @@ void modCalcSidTime::processLines(QTextStream &istream)
         if (DateCheckBatch->isChecked())
         {
             //Parse one of the fields as the date
-            foreach (const QString &s, fields)
+            for (auto &s : fields)
             {
                 dt = QDate::fromString(s);
                 if (dt.isValid())
@@ -317,7 +309,7 @@ void modCalcSidTime::processLines(QTextStream &istream)
         }
 
         //Parse one of the fields as the time
-        foreach (const QString &s, fields)
+        for (auto &s : fields)
         {
             if (s.contains(':'))
             {
@@ -332,24 +324,27 @@ void modCalcSidTime::processLines(QTextStream &istream)
             continue;
         }
 
-        if (ComputeComboBatch->currentIndex() == 0)
+        if (geoBatch != nullptr)
         {
-            //inTime is the local time, compute LST
-            KStarsDateTime ksdt(dt, inTime);
-            ksdt    = geoBatch->LTtoUT(ksdt);
-            dms lst = geoBatch->GSTtoLST(ksdt.gst());
-            outTime = QTime(lst.hour(), lst.minute(), lst.second());
-        }
-        else
-        {
-            //inTime is the sidereal time, compute the local time
-            KStarsDateTime ksdt(dt, QTime(0, 0, 0));
-            dms lst;
-            lst.setH(inTime.hour(), inTime.minute(), inTime.second());
-            QTime ut = ksdt.GSTtoUT(geoBatch->LSTtoGST(lst));
-            ksdt.setTime(ut);
-            ksdt    = geoBatch->UTtoLT(ksdt);
-            outTime = ksdt.time();
+            if (ComputeComboBatch->currentIndex() == 0)
+            {
+                //inTime is the local time, compute LST
+                KStarsDateTime ksdt(dt, inTime);
+                ksdt    = geoBatch->LTtoUT(ksdt);
+                dms lst = geoBatch->GSTtoLST(ksdt.gst());
+                outTime = QTime(lst.hour(), lst.minute(), lst.second());
+            }
+            else
+            {
+                //inTime is the sidereal time, compute the local time
+                KStarsDateTime ksdt(dt, QTime(0, 0, 0));
+                dms lst;
+                lst.setH(inTime.hour(), inTime.minute(), inTime.second());
+                QTime ut = ksdt.GSTtoUT(geoBatch->LSTtoGST(lst));
+                ksdt.setTime(ut);
+                ksdt    = geoBatch->UTtoLT(ksdt);
+                outTime = ksdt.time();
+            }
         }
 
         //Write to output file

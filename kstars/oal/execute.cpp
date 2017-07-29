@@ -18,24 +18,16 @@
 
 #include "oal/execute.h"
 
-#include <QFile>
-
-#include <KMessageBox>
-#include <QFileDialog>
+#include "kstars.h"
 #include "kstarsdata.h"
-#include "oal/observer.h"
-#include "oal/site.h"
-#include "oal/session.h"
-#include "oal/scope.h"
-#include "oal/eyepiece.h"
-#include "oal/lens.h"
-#include "oal/filter.h"
-#include "skyobjects/skyobject.h"
-#include "skyobjects/starobject.h"
-#include "dialogs/locationdialog.h"
-#include "dialogs/finddialog.h"
-#include "skycomponents/skymapcomposite.h"
 #include "observinglist.h"
+#include "dialogs/finddialog.h"
+#include "dialogs/locationdialog.h"
+#include "oal/observeradd.h"
+#include "skycomponents/skymapcomposite.h"
+#include "skyobjects/starobject.h"
+
+#include <QFileDialog>
 
 Execute::Execute()
 {
@@ -63,17 +55,6 @@ Execute::Execute()
 
     setWindowTitle(i18n("Execute Session"));
 
-    currentTarget   = nullptr;
-    currentObserver = nullptr;
-    currentScope    = nullptr;
-    currentEyepiece = nullptr;
-    currentLens     = nullptr;
-    currentFilter   = nullptr;
-    currentSession  = nullptr;
-    nextSession     = 0;
-    nextObservation = 0;
-    nextSite        = 0;
-
     //initialize the global logObject
     logObject = KStarsData::Instance()->logObject();
 
@@ -90,7 +71,7 @@ Execute::Execute()
     connect(ui.NextButton, SIGNAL(clicked()), this, SLOT(slotNext()));
     connect(ui.Slew, SIGNAL(clicked()), this, SLOT(slotSlew()));
     connect(ui.Location, SIGNAL(clicked()), this, SLOT(slotLocation()));
-    connect(ui.Target, SIGNAL(currentTextChanged(const QString)), this, SLOT(slotSetTarget(QString)));
+    connect(ui.Target, SIGNAL(currentTextChanged(QString)), this, SLOT(slotSetTarget(QString)));
     connect(ui.SessionURL, SIGNAL(leftClickedUrl()), this, SLOT(slotShowSession()));
     connect(ui.ObservationsURL, SIGNAL(leftClickedUrl()), this, SLOT(slotShowTargets()));
     connect(ui.AddObject, SIGNAL(leftClickedUrl()), this, SLOT(slotAddObject()));
@@ -203,8 +184,9 @@ bool Execute::saveSession()
     }
     if (currentSession)
     {
-        currentSession->setSession(currentSession->id(), site->id(), ui.Begin->dateTime(), ui.Begin->dateTime(),
-                                   ui.Weather->toPlainText(), ui.Equipment->toPlainText(), ui.Comment->toPlainText(),
+        currentSession->setSession(currentSession->id(), site->id(), KStarsDateTime(ui.Begin->dateTime()),
+                                   KStarsDateTime(ui.Begin->dateTime()), ui.Weather->toPlainText(),
+                                   ui.Equipment->toPlainText(), ui.Comment->toPlainText(),
                                    ui.Language->text());
     }
     else
@@ -212,8 +194,9 @@ bool Execute::saveSession()
         while (logObject->findSessionByName(i18n("session_") + QString::number(nextSession)))
             nextSession++;
         currentSession = new OAL::Session(i18n("session_") + QString::number(nextSession++), site->id(),
-                                          ui.Begin->dateTime(), ui.Begin->dateTime(), ui.Weather->toPlainText(),
-                                          ui.Equipment->toPlainText(), ui.Comment->toPlainText(), ui.Language->text());
+                                          KStarsDateTime(ui.Begin->dateTime()), KStarsDateTime(ui.Begin->dateTime()),
+                                          ui.Weather->toPlainText(), ui.Equipment->toPlainText(),
+                                          ui.Comment->toPlainText(), ui.Language->text());
         logObject->sessionList()->append(currentSession);
     }
     ui.stackedWidget->setCurrentIndex(1); //Move to the next page
@@ -235,7 +218,8 @@ void Execute::loadTargets()
 {
     ui.Target->clear();
     sortTargetList();
-    foreach (QSharedPointer<SkyObject> o, KStarsData::Instance()->observingList()->sessionList())
+
+    for (auto &o : KStarsData::Instance()->observingList()->sessionList())
     {
         ui.Target->addItem(getObjectName(o.data(), false));
     }
@@ -325,7 +309,7 @@ void Execute::slotEndSession()
 {
     if (currentSession)
     {
-        currentSession->setSession(currentSession->id(), currentSession->site(), ui.Begin->dateTime(),
+        currentSession->setSession(currentSession->id(), currentSession->site(), KStarsDateTime(ui.Begin->dateTime()),
                                    KStarsDateTime::currentDateTime(), ui.Weather->toPlainText(),
                                    ui.Equipment->toPlainText(), ui.Comment->toPlainText(), ui.Language->text());
 
@@ -366,7 +350,7 @@ void Execute::slotObserverAdd()
     delete m_observerAdd;
 }
 
-void Execute::slotSetTarget(QString name)
+void Execute::slotSetTarget(const QString &name)
 {
     currentTarget = KStarsData::Instance()->observingList()->findObjectByName(name);
     if (!currentTarget)

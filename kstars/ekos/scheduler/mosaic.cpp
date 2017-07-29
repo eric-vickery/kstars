@@ -9,21 +9,17 @@
 
 #include "mosaic.h"
 
-#include "skymap.h"
-#include "projections/projector.h"
-
-#include "scheduler.h"
-#include "ekos/ekosmanager.h"
-
+#include "kstars.h"
 #include "Options.h"
+#include "scheduler.h"
+#include "skymap.h"
+#include "ekos/ekosmanager.h"
+#include "projections/projector.h"
 
 namespace Ekos
 {
 MosaicTile::MosaicTile()
 {
-    w = h = 1;
-    fovW = fovH = pa = 0;
-
     brush.setStyle(Qt::NoBrush);
     pen.setColor(Qt::red);
     pen.setWidth(1);
@@ -118,7 +114,7 @@ void MosaicTile::updateTiles()
 
     qDebug() << "FovW " << fovW << " FovH " << fovH;
     qDebug() << "initX"
-             << "initX " << initX << " initY " << initY;
+             << "initX " << x << " initY " << y;
     qDebug() << "Offset X " << xOffset << " Y " << yOffset;
 
     for (int row = 0; row < h; row++)
@@ -173,24 +169,9 @@ QPointF MosaicTile::rotatePoint(QPointF pointToRotate, QPointF centerPoint)
     return rotation_point;
 }
 
-QPointF MosaicTile::getTileCenter(int row, int col)
-{
-    OneTile *tile = getTile(row, col);
-
-    if (tile != nullptr)
-        return tile->center_rot;
-
-    return QPointF();
-}
-
-Mosaic::Mosaic(Scheduler *scheduler)
+Mosaic::Mosaic()
 {
     setupUi(this);
-
-    m_skyChart = 0;
-    m_skyImage = 0;
-
-    ekosScheduler = scheduler;
 
     focalLenSpin->setValue(Options::telescopeFocalLength());
     pixelWSizeSpin->setValue(Options::cameraPixelWidth());
@@ -537,21 +518,5 @@ void Mosaic::createJobs()
     }
 
     accept();
-}
-
-QPointF Mosaic::rotatePoint(QPointF pointToRotate, QPointF centerPoint)
-{
-    double angleInRadians = rotationSpin->value() * dms::DegToRad;
-    double cosTheta       = cos(angleInRadians);
-    double sinTheta       = sin(angleInRadians);
-
-    QPointF rotation_point;
-
-    rotation_point.setX((cosTheta * (pointToRotate.x() - centerPoint.x()) -
-                         sinTheta * (pointToRotate.y() - centerPoint.y()) + centerPoint.x()));
-    rotation_point.setY((sinTheta * (pointToRotate.x() - centerPoint.x()) +
-                         cosTheta * (pointToRotate.y() - centerPoint.y()) + centerPoint.y()));
-
-    return rotation_point;
 }
 }

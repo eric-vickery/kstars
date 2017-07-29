@@ -23,7 +23,6 @@
 #include "kstarsdata.h"
 #include "skymapcomposite.h"
 #include "skymap.h"
-#include "skypoint.h"
 #include "printingwizard.h"
 
 ShFovExporter::ShFovExporter(PrintingWizard *wizard, SkyMap *map) : m_Map(map), m_ParentWizard(wizard)
@@ -56,8 +55,8 @@ bool ShFovExporter::exportPath()
 
     // Show path on SkyMap
     TargetListComponent *t = KStarsData::Instance()->skyComposite()->getStarHopRouteList();
-    delete t->list;
-    t->list = m_skyObjList;
+
+    t->list.reset(m_skyObjList);
 
     // Update SkyMap now
     m_Map->forceUpdate(true);

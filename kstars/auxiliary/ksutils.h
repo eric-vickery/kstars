@@ -94,13 +94,14 @@ inline T reduceAngle(T x, T min, T max)
     return x - delta * floor((x - min) / delta);
 }
 
-/** Convert from spherical to cartesian coordiate system.
+/** Convert from spherical to cartesian coordinate system.
  *  Resulting vector have unit length
  */
-inline Eigen::Vector3d fromSperical(dms longitude, dms latitude)
+inline Eigen::Vector3d fromSperical(const dms &longitude, const dms &latitude)
 {
     double sinL, sinB;
     double cosL, cosB;
+
     longitude.SinCos(sinL, cosL);
     latitude.SinCos(sinB, cosB);
     return Eigen::Vector3d(cosB * cosL, cosB * sinL, sinB);
@@ -260,7 +261,7 @@ struct JPLFilter
 /**
  *@short Generate a query string for downloading comet/asteroid data from JPL.
  *@param kind The kind of object we want: ast, com.
- *@param dataFields The collumns we want to download.
+ *@param dataFields The columns we want to download.
  *@param filters Filters for the Data.
  *@return The query string.
  */

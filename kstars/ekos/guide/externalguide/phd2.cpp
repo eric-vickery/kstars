@@ -7,21 +7,15 @@
     version 2 of the License, or (at your option) any later version.
 */
 
-#include <QtNetwork/QNetworkReply>
-#include <QtNetwork/QNetworkRequest>
-#include <QUrl>
-#include <QVariantMap>
-#include <QDebug>
-#include <QHttpMultiPart>
-#include <QFile>
-#include <QJsonObject>
-#include <QJsonDocument>
+#include "phd2.h"
+
+#include "Options.h"
 
 #include <KMessageBox>
-#include <KLocalizedString>
 
-#include "phd2.h"
-#include "Options.h"
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QtNetwork/QNetworkReply>
 
 namespace Ekos
 {
@@ -32,11 +26,6 @@ PHD2::PHD2()
     connect(tcpSocket, SIGNAL(readyRead()), this, SLOT(readPHD2()));
     connect(tcpSocket, SIGNAL(error(QAbstractSocket::SocketError)), this,
             SLOT(displayError(QAbstractSocket::SocketError)));
-
-    methodID   = 1;
-    state      = STOPPED;
-    connection = DISCONNECTED;
-    event      = Alert;
 
     events["Version"]                 = Version;
     events["LockPositionSet"]         = LockPositionSet;
@@ -146,7 +135,6 @@ void PHD2::readPHD2()
 void PHD2::processJSON(const QJsonObject &jsonObj)
 {
     PHD2MessageType messageType = PHD2_UNKNOWN;
-    bool result                 = false;
 
     if (jsonObj.contains("Event"))
     {
@@ -159,13 +147,11 @@ void PHD2::processJSON(const QJsonObject &jsonObj)
     else if (jsonObj.contains("error"))
     {
         messageType = PHD2_ERROR;
-        result      = false;
         processPHD2Error(jsonObj);
     }
     else if (jsonObj.contains("result"))
     {
         messageType = PHD2_RESULT;
-        result      = true;
     }
 
     switch (connection)
@@ -178,7 +164,9 @@ void PHD2::processJSON(const QJsonObject &jsonObj)
         case CONNECTED:
             // If initial state is STOPPED, let us connect equipment
             if (state == STOPPED)
+            {
                 setEquipmentConnected(true);
+            }
             else if (state == GUIDING)
             {
                 connection = EQUIPMENT_CONNECTED;
@@ -193,16 +181,13 @@ void PHD2::processJSON(const QJsonObject &jsonObj)
         case EQUIPMENT_CONNECTING:
             if (messageType == PHD2_RESULT)
             {
-                if (result)
-                {
-                    connection = EQUIPMENT_CONNECTED;
-                    emit newStatus(Ekos::GUIDE_CONNECTED);
-                }
-                else
-                {
-                    connection = EQUIPMENT_DISCONNECTED;
-                    emit newStatus(Ekos::GUIDE_DISCONNECTED);
-                }
+                connection = EQUIPMENT_CONNECTED;
+                emit newStatus(Ekos::GUIDE_CONNECTED);
+            }
+            else
+            {
+                connection = EQUIPMENT_DISCONNECTED;
+                emit newStatus(Ekos::GUIDE_DISCONNECTED);
             }
             return;
 

@@ -15,31 +15,38 @@
  *                                                                         *
  ***************************************************************************/
 
-#include <QQuickView>
-#include <QQuickItem>
-#include <QQmlContext>
-#include <QStandardPaths>
-#include <QGraphicsObject>
 #include "wiview.h"
-#include "skymap.h"
-#include "dialogs/detaildialog.h"
-#include <klocalizedcontext.h>
+
 #include "kspaths.h"
-#include "starobject.h"
-#include "skymap.h"
+#include "kstars.h"
+#include "modelmanager.h"
+#include "obsconditions.h"
 #include "Options.h"
-#include "wiequipsettings.h"
+#include "skymap.h"
 #include "skymapcomposite.h"
+#include "skyobjitem.h"
+#include "skyobjlistmodel.h"
+#include "starobject.h"
+#include "wiequipsettings.h"
+#include "dialogs/detaildialog.h"
+
+#include <klocalizedcontext.h>
+
+#include <QGraphicsObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QQmlContext>
+#include <QQuickItem>
+#include <QQuickView>
+#include <QStandardPaths>
 #include <QtConcurrent>
 
 #ifdef HAVE_INDI
 #include <basedevice.h>
 #include "indi/indilistener.h"
-#include "indi/indistd.h"
-#include "indi/driverinfo.h"
 #endif
 
-WIView::WIView(QWidget *parent) : QWidget(parent), m_CurrentObjectListName(-1)
+WIView::WIView(QWidget *parent) : QWidget(parent)
 {
     //These settings are like this just to get it started.
     int bortle                           = Options::bortleClass();
@@ -49,7 +56,7 @@ WIView::WIView(QWidget *parent) : QWidget(parent), m_CurrentObjectListName(-1)
 
     m_Obs = new ObsConditions(bortle, aperture, equip, telType);
 
-    m_ModManager = new ModelManager(m_Obs);
+    m_ModManager.reset(new ModelManager(m_Obs));
 
     m_BaseView = new QQuickView();
 
@@ -100,9 +107,6 @@ WIView::WIView(QWidget *parent) : QWidget(parent), m_CurrentObjectListName(-1)
     descTextObj = m_DetailsViewObj->findChild<QObject *>("descTextObj");
     infoBoxText = m_DetailsViewObj->findChild<QObject *>("infoBoxText");
 
-    m_skyObjView   = m_BaseObj->findChild<QQuickItem *>("skyObjView");
-    m_ContainerObj = m_BaseObj->findChild<QQuickItem *>("containerObj");
-
     m_NextObj = m_BaseObj->findChild<QQuickItem *>("nextObj");
     connect(m_NextObj, SIGNAL(nextObjClicked()), this, SLOT(onNextObjClicked()));
     m_PrevObj = m_BaseObj->findChild<QQuickItem *>("prevObj");
@@ -148,14 +152,14 @@ WIView::WIView(QWidget *parent) : QWidget(parent), m_CurrentObjectListName(-1)
     #endif
 
 
-    connect(KStars::Instance()->map(), SIGNAL(objectClicked(SkyObject *)), this,
-            SLOT(inspectSkyObjectOnClick(SkyObject *)));
+    connect(KStars::Instance()->map(), SIGNAL(objectClicked(SkyObject*)), this,
+            SLOT(inspectSkyObjectOnClick(SkyObject*)));
 
-    manager = new QNetworkAccessManager();
+    manager.reset(new QNetworkAccessManager());
 
     setProgressBarVisible(true);
-    connect(m_ModManager, SIGNAL(loadProgressUpdated(double)), this, SLOT(updateProgress(double)));
-    connect(m_ModManager, SIGNAL(modelUpdated()), this, SLOT(refreshListView()));
+    connect(m_ModManager.get(), SIGNAL(loadProgressUpdated(double)), this, SLOT(updateProgress(double)));
+    connect(m_ModManager.get(), SIGNAL(modelUpdated()), this, SLOT(refreshListView()));
     m_ViewsRowObj->setProperty("enabled", false);
 
     inspectOnClick = false;
@@ -167,9 +171,6 @@ WIView::WIView(QWidget *parent) : QWidget(parent), m_CurrentObjectListName(-1)
 
 WIView::~WIView()
 {
-    delete m_ModManager;
-    delete m_CurSoItem;
-    delete manager;
 }
 
 void WIView::setNightVisionOn(bool on)
@@ -178,8 +179,8 @@ void WIView::setNightVisionOn(bool on)
         nightVision->setProperty("state", "active");
     else
         nightVision->setProperty("state", "");
-    if (m_CurSoItem)
-        loadDetailsView(m_CurSoItem, m_CurIndex);
+    if (m_CurSoItem.get() != nullptr)
+        loadDetailsView(m_CurSoItem.get(), m_CurIndex);
 }
 
 void WIView::setProgressBarVisible(bool visible)
@@ -254,17 +255,17 @@ void WIView::onCategorySelected(QString model)
         favoriteIconObj->setProperty("state", "unchecked");
     if (model == "ngc" && (!m_ModManager->isNGCLoaded()))
     {
-        QtConcurrent::run(m_ModManager, &ModelManager::loadNGCCatalog);
+        QtConcurrent::run(m_ModManager.get(), &ModelManager::loadNGCCatalog);
         return;
     }
     if (model == "ic" && (!m_ModManager->isICLoaded()))
     {
-        QtConcurrent::run(m_ModManager, &ModelManager::loadICCatalog);
+        QtConcurrent::run(m_ModManager.get(), &ModelManager::loadICCatalog);
         return;
     }
     if (model == "sharpless" && (!m_ModManager->isSharplessLoaded()))
     {
-        QtConcurrent::run(m_ModManager, &ModelManager::loadSharplessCatalog);
+        QtConcurrent::run(m_ModManager.get(), &ModelManager::loadSharplessCatalog);
         return;
     }
     updateModel(*m_Obs);
@@ -279,7 +280,7 @@ void WIView::onSoListItemClicked(int index)
 
 void WIView::onNextObjClicked()
 {
-    if (m_CurrentObjectListName != "")
+    if (!m_CurrentObjectListName.isEmpty())
     {
         int modelSize = m_ModManager->returnModel(m_CurrentObjectListName)->rowCount();
         SkyObjItem *nextItem =
@@ -290,7 +291,7 @@ void WIView::onNextObjClicked()
 
 void WIView::onPrevObjClicked()
 {
-    if (m_CurrentObjectListName != "")
+    if (!m_CurrentObjectListName.isEmpty())
     {
         int modelSize = m_ModManager->returnModel(m_CurrentObjectListName)->rowCount();
         SkyObjItem *prevItem =
@@ -383,12 +384,12 @@ void WIView::onSettingsIconClicked()
 
 void WIView::onReloadIconClicked()
 {
-    if (m_CurrentObjectListName != "")
+    if (!m_CurrentObjectListName.isEmpty())
     {
         updateModel(*m_Obs);
-        m_CurIndex = m_ModManager->returnModel(m_CurrentObjectListName)->getSkyObjIndex(m_CurSoItem);
+        m_CurIndex = m_ModManager->returnModel(m_CurrentObjectListName)->getSkyObjIndex(m_CurSoItem.get());
     }
-    loadDetailsView(m_CurSoItem, m_CurIndex);
+    loadDetailsView(m_CurSoItem.get(), m_CurIndex);
 }
 
 void WIView::onVisibleIconClicked(bool visible)
@@ -411,7 +412,7 @@ void WIView::onUpdateIconClicked()
     QPushButton *allObjects = nullptr;
 
     mbox.setText("Please choose which object(s) to try to update with Wikipedia data.");
-    if (m_CurrentObjectListName != "")
+    if (!m_CurrentObjectListName.isEmpty())
     {
         missingObjects = mbox.addButton("Objects with no data", QMessageBox::AcceptRole);
         allObjects     = mbox.addButton("Entire List", QMessageBox::AcceptRole);
@@ -422,9 +423,9 @@ void WIView::onUpdateIconClicked()
     mbox.exec();
     if (mbox.clickedButton() == currentObject)
     {
-        if (m_CurSoItem)
+        if (m_CurSoItem.get() != nullptr)
         {
-            tryToUpdateWikipediaInfo(m_CurSoItem, getWikipediaName(m_CurSoItem));
+            tryToUpdateWikipediaInfo(m_CurSoItem.get(), getWikipediaName(m_CurSoItem.get()));
         }
     }
     else if (mbox.clickedButton() == allObjects || mbox.clickedButton() == missingObjects)
@@ -444,7 +445,7 @@ void WIView::onUpdateIconClicked()
 void WIView::refreshListView()
 {
     m_Ctxt->setContextProperty("soListModel", 0);
-    if (m_CurrentObjectListName != "")
+    if (!m_CurrentObjectListName.isEmpty())
         m_Ctxt->setContextProperty("soListModel", m_ModManager->returnModel(m_CurrentObjectListName));
     if (m_CurIndex == -2)
         onSoListItemClicked(0);
@@ -454,7 +455,7 @@ void WIView::refreshListView()
 
 void WIView::updateModel(ObsConditions& obs)
 {
-    if (m_CurrentObjectListName != "")
+    if (!m_CurrentObjectListName.isEmpty())
     {
         m_Obs = &obs;
         m_ModManager->updateModel(m_Obs, m_CurrentObjectListName);
@@ -494,7 +495,7 @@ void WIView::inspectSkyObject(SkyObject *obj)
 
 void WIView::loadDetailsView(SkyObjItem *soitem, int index)
 {
-    if (!soitem)
+    if (soitem == nullptr)
         return;
 
     int modelSize = -1;
@@ -502,7 +503,9 @@ void WIView::loadDetailsView(SkyObjItem *soitem, int index)
     if (index != -1)
         modelSize = m_ModManager->returnModel(m_CurrentObjectListName)->rowCount();
 
-    m_CurSoItem = soitem;
+    if (soitem != m_CurSoItem.get())
+        m_CurSoItem.reset(soitem);
+
     m_CurIndex  = index;
     if (modelSize <= 1)
     {
@@ -570,12 +573,14 @@ QString WIView::getWikipediaName(SkyObjItem *soitem)
 {
     if (!soitem)
         return "";
+
     QString name;
-    if (soitem->getName().toLower().startsWith("m "))
+
+    if (soitem->getName().toLower().startsWith(QLatin1String("m ")))
         name = soitem->getName().replace("M ", "Messier_").remove(' ');
-    else if (soitem->getName().toLower().startsWith("ngc"))
+    else if (soitem->getName().toLower().startsWith(QLatin1String("ngc")))
         name = soitem->getName().toLower().replace("ngc", "NGC_").remove(' ');
-    else if (soitem->getName().toLower().startsWith("ic"))
+    else if (soitem->getName().toLower().startsWith(QLatin1String("ic")))
         name = soitem->getName().toLower().replace("ic", "IC_").remove(' ');
     else if (soitem->getType() == SkyObjItem::Constellation)
     {
@@ -599,14 +604,16 @@ QString WIView::getWikipediaName(SkyObjItem *soitem)
     else if (soitem->getType() == SkyObjItem::Star)
     {
         StarObject *star = dynamic_cast<StarObject *>(soitem->getSkyObject());
-        name             = star->gname(false).replace(
-            " ", "_"); //the greek name seems to give the most consistent search results for opensearch.
-        if (name == "")
-            name = soitem->getName().replace(" ", "_") + "_(star)";
-        name.remove("[").remove("]");
+
+        // The greek name seems to give the most consistent search results for opensearch.
+        name             = star->gname(false).replace(' ', '_');
+        if (name.isEmpty())
+            name = soitem->getName().replace(' ', '_') + "_(star)";
+        name.remove('[').remove(']');
     }
     else
         name = soitem->getName().remove(' ');
+
     return name;
 }
 
@@ -614,6 +621,7 @@ void WIView::updateWikipediaDescription(SkyObjItem *soitem)
 {
     if (!soitem)
         return;
+
     QString name = getWikipediaName(soitem);
 
     QUrl url("https://en.wikipedia.org/w/api.php?action=opensearch&search=" + name + "&format=xml");
@@ -655,7 +663,7 @@ void WIView::updateWikipediaDescription(SkyObjItem *soitem)
         html              = "<HTML><HEAD><style type=text/css>body {color:" + color +
                ";} a {text-decoration: none;color:" + linkColor + ";}</style></HEAD><BODY>" + html + "</BODY></HTML>";
 
-        if (soitem == m_CurSoItem)
+        if (soitem == m_CurSoItem.get())
             descTextObj->setProperty("text", html);
         refreshListView();
     });
@@ -711,7 +719,7 @@ void WIView::loadObjectInfoBox(SkyObjItem *soitem)
                         KSPaths::locate(QStandardPaths::GenericDataLocation,
                                         "descriptions/wikiImage-" + soitem->getName().toLower().remove(' ') + ".png"))
                         .url();
-                if (wikiImageName != "")
+                if (!wikiImageName.isEmpty())
                 {
                     int captionEnd = infoBoxHTML.indexOf(
                         "</caption>"); //Start looking for the image AFTER the caption.  Planets have images in their caption.
@@ -758,11 +766,12 @@ void WIView::tryToUpdateWikipediaInfoInModel(bool onlyMissing)
 
 void WIView::tryToUpdateWikipediaInfo(SkyObjItem *soitem, QString name)
 {
-    if (name == "" || !soitem)
+    if (name.isEmpty() || !soitem)
         return;
-    QUrl url("https://en.wikipedia.org/w/index.php?action=render&title=" + name + "&redirects");
 
+    QUrl url("https://en.wikipedia.org/w/index.php?action=render&title=" + name + "&redirects");
     QNetworkReply *response = manager->get(QNetworkRequest(url));
+
     QTimer::singleShot(30000, response, [response] { //Shut it down after 30 sec.
         response->abort();
         response->deleteLater();
@@ -787,9 +796,9 @@ void WIView::tryToUpdateWikipediaInfo(SkyObjItem *soitem, QString name)
         if (leftPos == -1)
         { //No InfoBox is Found
             if (soitem->getType() == SkyObjItem::Star &&
-                name != soitem->getName().replace(" ", "_")) //For stars, the regular name rather than gname
+                name != soitem->getName().replace(' ', '_')) //For stars, the regular name rather than gname
             {
-                tryToUpdateWikipediaInfo(soitem, soitem->getName().replace(" ", "_"));
+                tryToUpdateWikipediaInfo(soitem, soitem->getName().replace(' ', '_'));
                 return;
             }
             QString html = "<BR>Sorry, no Information Box in the object's Wikipedia article was found.";
@@ -873,7 +882,7 @@ void WIView::tryToUpdateWikipediaInfo(SkyObjItem *soitem, QString name)
             html.replace("color: white", "color: " + color);
         html = "<HTML><HEAD><style type=text/css>body {color:" + color +
                ";} a {text-decoration: none;color:" + linkColor + ";}</style></HEAD><BODY>" + html + "</BODY></HTML>";
-        if (soitem == m_CurSoItem)
+        if (soitem == m_CurSoItem.get())
             infoBoxText->setProperty("text", html);
     });
 }
@@ -881,13 +890,13 @@ void WIView::tryToUpdateWikipediaInfo(SkyObjItem *soitem, QString name)
 void WIView::saveObjectInfoBoxText(SkyObjItem *soitem, QString type, QString text)
 {
     QFile file;
-    QString fname = type + "-" + soitem->getName().toLower().remove(' ') + ".html";
+    QString fname = type + '-' + soitem->getName().toLower().remove(' ') + ".html";
 
     QDir writableDir;
     QString filePath = KSPaths::writableLocation(QStandardPaths::GenericDataLocation) + "descriptions";
     writableDir.mkpath(filePath);
 
-    file.setFileName(filePath + "/" + fname); //determine filename in local user KDE directory tree.
+    file.setFileName(filePath + '/' + fname); //determine filename in local user KDE directory tree.
 
     if (file.open(QIODevice::WriteOnly) == false)
     {
@@ -982,7 +991,7 @@ void WIView::downloadWikipediaImage(SkyObjItem *soitem, QString imageURL)
     QString filePath = KSPaths::writableLocation(QStandardPaths::GenericDataLocation) + "descriptions";
     writableDir.mkpath(filePath);
 
-    QString fileN = filePath + "/" + fname;
+    QString fileN = filePath + '/' + fname;
 
     QNetworkReply *response = manager->get(QNetworkRequest(QUrl(imageURL)));
     QTimer::singleShot(60000, response, [response] { //Shut it down after 60 sec.

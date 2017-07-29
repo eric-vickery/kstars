@@ -7,28 +7,23 @@
     version 2 of the License, or (at your option) any later version.
 */
 
-#include <QDir>
+#include "remoteastrometryparser.h"
 
-#include <KMessageBox>
-#include <KLocalizedString>
+#include "align.h"
 #include "Options.h"
-
-#include <basedevice.h>
-#include <indicom.h>
-
 #include "indi/clientmanager.h"
 #include "indi/driverinfo.h"
 #include "indi/guimanager.h"
 #include "indi/indidevice.h"
 
-#include "remoteastrometryparser.h"
-#include "align.h"
+#include <indicom.h>
+
+#include <KMessageBox>
 
 namespace Ekos
 {
 RemoteAstrometryParser::RemoteAstrometryParser() : AstrometryParser()
 {
-    solverRunning = false;
 }
 
 RemoteAstrometryParser::~RemoteAstrometryParser()
@@ -175,6 +170,28 @@ void RemoteAstrometryParser::setEnabled(bool enable)
     }
 }
 
+bool RemoteAstrometryParser::setCCD(const QString &ccd)
+{
+    ITextVectorProperty *activeDevices = remoteAstrometry->getBaseDevice()->getText("ACTIVE_DEVICES");
+
+    if (activeDevices == nullptr)
+        return false;
+
+    IText *activeCCD  = IUFindText(activeDevices, "ACTIVE_CCD");
+
+    if (activeCCD == nullptr)
+        return false;
+
+    // If same device, no need to update
+    if (QString(activeCCD->text) == ccd)
+        return true;
+
+    IUSaveText(activeCCD, ccd.toLatin1().data());
+    remoteAstrometry->getDriverInfo()->getClientManager()->sendNewText(activeDevices);
+
+    return true;
+}
+
 bool RemoteAstrometryParser::stopSolver()
 {
     // Disable solver
@@ -204,10 +221,10 @@ void RemoteAstrometryParser::setAstrometryDevice(ISD::GDInterface *device)
 
     remoteAstrometry->disconnect(this);
 
-    connect(remoteAstrometry, SIGNAL(switchUpdated(ISwitchVectorProperty *)), this,
-            SLOT(checkStatus(ISwitchVectorProperty *)));
-    connect(remoteAstrometry, SIGNAL(numberUpdated(INumberVectorProperty *)), this,
-            SLOT(checkResults(INumberVectorProperty *)));
+    connect(remoteAstrometry, SIGNAL(switchUpdated(ISwitchVectorProperty*)), this,
+            SLOT(checkStatus(ISwitchVectorProperty*)));
+    connect(remoteAstrometry, SIGNAL(numberUpdated(INumberVectorProperty*)), this,
+            SLOT(checkResults(INumberVectorProperty*)));
 }
 
 void RemoteAstrometryParser::checkStatus(ISwitchVectorProperty *svp)
@@ -221,6 +238,12 @@ void RemoteAstrometryParser::checkStatus(ISwitchVectorProperty *svp)
         align->appendLogText(i18n("Solver failed. Try again."));
         emit solverFailed();
         return;
+    }
+    // In case the remote solver started solving by listening to ACTIVE_CCD BLOB remotely via snooping
+    // then we need to start the timer.
+    else if (svp->s == IPS_BUSY)
+    {
+        solverTimer.restart();
     }
 }
 

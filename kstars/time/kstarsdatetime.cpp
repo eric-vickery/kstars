@@ -17,11 +17,12 @@
 
 #include "kstarsdatetime.h"
 
-#include <QDebug>
+#include "dms.h"
+#include "ksnumbers.h"
+
 #include <KLocalizedString>
 
-#include "ksnumbers.h"
-#include "dms.h"
+#include <QDebug>
 
 KStarsDateTime::KStarsDateTime() : QDateTime()
 {
@@ -92,16 +93,17 @@ KStarsDateTime KStarsDateTime::fromString(const QString &s)
     //DEBUG
     qDebug() << "Date string: " << s;
 
-    KStarsDateTime dtResult = QDateTime::fromString(s, Qt::TextDate);
+    KStarsDateTime dtResult(QDateTime::fromString(s, Qt::TextDate));
+
     if (dtResult.isValid())
         return dtResult;
 
-    dtResult = QDateTime::fromString(s, Qt::ISODate);
+    dtResult = KStarsDateTime(QDateTime::fromString(s, Qt::ISODate));
     if (dtResult.isValid())
         return dtResult;
 
     //dtResult = QDateTime::fromString( s, QDateTime::RFCDate );
-    dtResult = QDateTime::fromString(s, Qt::RFC2822Date);
+    dtResult = KStarsDateTime(QDateTime::fromString(s, Qt::RFC2822Date));
     if (dtResult.isValid())
         return dtResult;
 
@@ -291,10 +293,10 @@ double KStarsDateTime::stringToEpoch(const QString &eName, bool &ok)
         return epoch;
 
     if (eName.startsWith('J'))
-        epoch = eName.mid(1).toDouble(&ok);
+        epoch = eName.midRef(1).toDouble(&ok);
     else if (eName.startsWith('B'))
     {
-        epoch = eName.mid(1).toDouble(&ok);
+        epoch = eName.midRef(1).toDouble(&ok);
         epoch = jdToEpoch(epochToJd(epoch, BESSELIAN), JULIAN); // Convert Besselian epoch to Julian epoch
     }
     // Assume it's Julian

@@ -16,23 +16,12 @@
 
 #include "obslistwizard.h"
 
-#include <QVBoxLayout>
-#include <QFrame>
-
-#include <QDoubleSpinBox>
-#include <QPushButton>
-#include <QDialogButtonBox>
-
-#include "kstarsdata.h"
 #include "geolocation.h"
+#include "kstarsdata.h"
 #include "dialogs/locationdialog.h"
-#include "skyobjects/skyobject.h"
-#include "skyobjects/deepskyobject.h"
-#include "skyobjects/starobject.h"
-#include "widgets/dmsbox.h"
-#include "widgets/magnitudespinbox.h"
 #include "skycomponents/constellationboundarylines.h"
 #include "skycomponents/skymapcomposite.h"
+#include "skyobjects/deepskyobject.h"
 
 ObsListWizardUI::ObsListWizardUI(QWidget *p) : QFrame(p)
 {
@@ -86,11 +75,11 @@ ObsListWizard::ObsListWizard(QWidget *ksparent) : QDialog(ksparent)
     connect(olw->RA, SIGNAL(editingFinished()), this, SLOT(slotParseRegion()));
     connect(olw->Dec, SIGNAL(editingFinished()), this, SLOT(slotParseRegion()));
     connect(olw->Radius, SIGNAL(editingFinished()), this, SLOT(slotObjectCountDirty()));
-    connect(olw->Date, SIGNAL(dateChanged(const QDate &)), this, SLOT(slotObjectCountDirty()));
+    connect(olw->Date, SIGNAL(dateChanged(QDate)), this, SLOT(slotObjectCountDirty()));
     connect(olw->Mag, SIGNAL(valueChanged(double)), this, SLOT(slotObjectCountDirty()));
     connect(olw->IncludeNoMag, SIGNAL(clicked()), this, SLOT(slotObjectCountDirty()));
-    connect(olw->timeTo, SIGNAL(timeChanged(const QTime &)), this, SLOT(slotObjectCountDirty()));
-    connect(olw->timeFrom, SIGNAL(timeChanged(const QTime &)), this, SLOT(slotObjectCountDirty()));
+    connect(olw->timeTo, SIGNAL(timeChanged(QTime)), this, SLOT(slotObjectCountDirty()));
+    connect(olw->timeFrom, SIGNAL(timeChanged(QTime)), this, SLOT(slotObjectCountDirty()));
     connect(olw->minAlt, SIGNAL(valueChanged(double)), this, SLOT(slotObjectCountDirty()));
     connect(olw->maxAlt, SIGNAL(valueChanged(double)), this, SLOT(slotObjectCountDirty()));
 
@@ -829,10 +818,8 @@ bool ObsListWizard::applyRegionFilter(SkyObject *o, bool doBuildList, bool doAdj
     //select by constellation
     if (isItemSelected(i18n("by constellation"), olw->RegionList))
     {
-        int i=0;
-        if (o->name() == "M 66")
-            i=1;
         QString c = KStarsData::Instance()->skyComposite()->constellationBoundary()->constellationName(o);
+
         if (isItemSelected(c, olw->ConstellationList))
         {
             if (doBuildList)

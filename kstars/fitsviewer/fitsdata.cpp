@@ -19,11 +19,11 @@
 
 #include "fitsdata.h"
 
-#include "auxiliary/ksnotification.h"
 #include "kstarsdata.h"
 #include "ksutils.h"
 #include "Options.h"
 #include "skymapcomposite.h"
+#include "auxiliary/ksnotification.h"
 
 #include <QApplication>
 #include <QImage>
@@ -49,7 +49,6 @@ const int MINIMUM_ROWS_PER_CENTER = 3;
 #define LOW_EDGE_CUTOFF_1  50
 #define LOW_EDGE_CUTOFF_2  10
 #define MINIMUM_EDGE_LIMIT 2
-#define SMALL_SCALE_SQUARE 256
 
 bool greaterThan(Edge *s1, Edge *s2)
 {
@@ -59,20 +58,7 @@ bool greaterThan(Edge *s1, Edge *s2)
 
 FITSData::FITSData(FITSMode fitsMode)
 {
-    channels      = 0;
-    wcs_coord     = nullptr;
-    fptr          = nullptr;
-    maxHFRStar    = nullptr;
-    tempFile      = false;
-    starsSearched = false;
-    HasWCS        = false;
-    HasDebayer    = false;
     mode          = fitsMode;
-    channels      = 1;
-
-    stats.bitpix        = 8;
-    stats.ndim          = 2;
-    stats.bytesPerPixel = 1;
 
     debayerParams.method  = DC1394_BAYER_METHOD_NEAREST;
     debayerParams.filter  = DC1394_COLOR_FILTER_RGGB;
@@ -122,7 +108,7 @@ bool FITSData::loadFITS(const QString &inFilename, bool silent)
 
     filename = inFilename;
 
-    if (filename.startsWith("/tmp/") || filename.contains("/Temp"))
+    if (filename.startsWith(QLatin1String("/tmp/")) || filename.contains("/Temp"))
         tempFile = true;
     else
         tempFile = false;
@@ -300,7 +286,7 @@ int FITSData::saveFITS(const QString &newFilename)
         // Skip "!" in the beginning of the new file name
         QString finalFileName(newFilename);
 
-        finalFileName.remove("!");
+        finalFileName.remove('!');
 
         // Remove first otherwise copy will fail below if file exists
         QFile::remove(finalFileName);
@@ -618,12 +604,11 @@ void FITSData::calculateMinMax()
 template <typename T>
 void FITSData::runningAverageStdDev()
 {
-    T *buffer = reinterpret_cast<T *>(imageBuffer);
-
+    T *buffer     = reinterpret_cast<T *>(imageBuffer);
     int m_n       = 2;
     double m_oldM = 0, m_newM = 0, m_oldS = 0, m_newS = 0;
-    m_oldM = m_newM = buffer[0];
 
+    m_oldM = m_newM = buffer[0];
     for (unsigned int i = 1; i < stats.samples_per_channel; i++)
     {
         m_newM = m_oldM + (buffer[i] - m_oldM) / m_n;
@@ -634,7 +619,7 @@ void FITSData::runningAverageStdDev()
         m_n++;
     }
 
-    double variance = m_newS / (m_n - 2);
+    double variance = (m_n == 2 ? 0 : m_newS / (m_n - 2));
 
     stats.mean[0]   = m_newM;
     stats.stddev[0] = sqrt(variance);
@@ -648,8 +633,8 @@ void FITSData::setMinMax(double newMin, double newMax, uint8_t channel)
 
 int FITSData::getFITSRecord(QString &recordList, int &nkeys)
 {
-    char *header;
-    int status = 0;
+    char *header = nullptr;
+    int status   = 0;
 
     if (fits_hdr2str(fptr, 0, nullptr, 0, &header, &nkeys, &status))
     {
@@ -1093,7 +1078,10 @@ int FITSData::findOneStar(const QRectF &boundary)
 
     // If no stars were detected
     if (center->width == -1)
+    {
+        delete center;
         return 0;
+    }
 
     // 30% fuzzy
     //center->width += center->width*0.3 * (running_threshold / threshold);
@@ -1495,7 +1483,10 @@ void FITSData::findCentroid(const QRectF &boundary, int initStdDev, int minEdgeW
             cen_y = (int)floor(rCenter->y);
 
             if (cen_x < 0 || cen_x > stats.width || cen_y < 0 || cen_y > stats.height)
+            {
+                delete rCenter;
                 continue;
+            }
 
             // Complete sum along the radius
             //for (int k=0; k < rCenter->width; k++)
@@ -1543,11 +1534,10 @@ void FITSData::findCentroid(const QRectF &boundary, int initStdDev, int minEdgeW
 
     if (starCenters.count() > 1 && mode != FITS_FOCUS)
     {
-        float width_avg = width_sum / starCenters.count();
-
+        float width_avg = (float)width_sum / starCenters.count();
         float lsum = 0, sdev = 0;
 
-        foreach (Edge *center, starCenters)
+        for (auto &center : starCenters)
             lsum += (center->width - width_avg) * (center->width - width_avg);
 
         sdev = (sqrt(lsum / (starCenters.count() - 1))) * 4;
@@ -1984,6 +1974,8 @@ void FITSData::applyFilter(FITSScale type, uint8_t *targetImage, float image_min
                         //   Pick up window elements
                         int k = 0;
                         float window[9];
+
+                        memset(&window[0], 0, 9*sizeof(float));
                         for (int j = m - 1; j < m + 2; ++j)
                             for (int i = n - 1; i < n + 2; ++i)
                                 window[k++] = extension[j * N + i];
@@ -2150,7 +2142,7 @@ bool FITSData::loadWCS()
     int status = 0;
     char *header;
     int nkeyrec, nreject, nwcs, stat[2];
-    double imgcrd[2], phi, pixcrd[2], theta, world[2];
+    double imgcrd[2], phi = 0, pixcrd[2], theta = 0, world[2];
     int width  = getWidth();
     int height = getHeight();
 
@@ -2715,16 +2707,6 @@ bool FITSData::rotFITS(int rotate, int mirror)
 
     return true;
 }
-
-/*
-QVariant FITSData::getFITSHeaderValue(const QString &keyword){
-    QVariant property;
-    int status=0;
-    char comment[100];
-    fits_read_key_dbl(fptr, keyword, &property, comment, &status );
-    return property;
-}
-*/
 
 void FITSData::rotWCSFITS(int angle, int mirror)
 {

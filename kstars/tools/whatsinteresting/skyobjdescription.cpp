@@ -8,13 +8,13 @@
 SkyObjDescription::SkyObjDescription(const QString so_Name, const QString so_Type)
     : soName(so_Name), soType(so_Type), m_description(""), m_DownloadedData("")
 {
-    QUrl wikiUrl("http://en.wikipedia.org/w/api.php?action=opensearch&search=" + soName.replace(" ", "_").toLower() +
-                 "_" + soType.toLower() + "&format=xml&limit=1.xml");
+    QUrl wikiUrl("http://en.wikipedia.org/w/api.php?action=opensearch&search=" + soName.replace(' ', '_').toLower() +
+                 '_' + soType.toLower() + "&format=xml&limit=1.xml");
 
     QNetworkRequest request(wikiUrl);
 
     manager = new QNetworkAccessManager(this);
-    connect(manager, SIGNAL(finished(QNetworkReply *)), SLOT(fileDownloaded(QNetworkReply *)));
+    connect(manager, SIGNAL(finished(QNetworkReply*)), SLOT(fileDownloaded(QNetworkReply*)));
     manager->get(request);
 }
 

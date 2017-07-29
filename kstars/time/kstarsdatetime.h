@@ -15,14 +15,13 @@
  *                                                                         *
  ***************************************************************************/
 
-#ifndef KSTARSDATETIME_H_
-#define KSTARSDATETIME_H_
+#pragma once
+
+#include <QDateTime>
 
 #define J2000          2451545.0    //Julian Date for noon on Jan 1, 2000 (epoch J2000)
 #define B1950          2433282.4235 // Julian date for Jan 0.9235, 1950
 #define SIDEREALSECOND 1.002737909  //number of sidereal seconds in one solar second
-
-#include <QDateTime>
 
 class dms;
 
@@ -56,7 +55,7 @@ class KStarsDateTime : public QDateTime
          *Creates a date/time at the specified Julian Day.
          *@p jd The Julian Day
          */
-    KStarsDateTime(long double djd);
+    explicit KStarsDateTime(long double djd);
 
     /**
          *@short Copy constructor
@@ -68,7 +67,7 @@ class KStarsDateTime : public QDateTime
          *@short Copy constructor
          *@p qdt The QDateTime object to copy.
          */
-    KStarsDateTime(const QDateTime &qdt);
+    explicit KStarsDateTime(const QDateTime &qdt);
 
     /**
          *@short Constructor
@@ -228,7 +227,5 @@ class KStarsDateTime : public QDateTime
          */
     dms GSTat0hUT() const;
 
-    long double DJD;
+    long double DJD { 0 };
 };
-
-#endif //KSTARSDATETIME_H_

@@ -29,27 +29,16 @@
 
 #include <QDebug>
 
-StarBlockList::StarBlockList(Trixel tr, DeepStarComponent *parent)
+StarBlockList::StarBlockList(const Trixel &tr, DeepStarComponent *parent)
 {
     trixel       = tr;
-    nStars       = 0;
-    readOffset   = 0;
-    faintMag     = -5.0;
-    nBlocks      = 0;
     this->parent = parent;
     staticStars  = parent->hasStaticStars();
 }
 
-StarBlockList::~StarBlockList()
-{
-    // NOTE: Rest of the StarBlocks are taken care of by StarBlockFactory
-    if (staticStars && blocks[0])
-        delete blocks[0];
-}
-
 int StarBlockList::releaseBlock(StarBlock *block)
 {
-    if (block != blocks[nBlocks - 1])
+    if (block != blocks[nBlocks - 1].get())
         qDebug() << "ERROR: Trying to release a block which is not the last block! Trixel = " << trixel << endl;
 
     else if (blocks.size() > 0)
@@ -86,8 +75,8 @@ bool StarBlockList::fillToMag(float maglim)
     // TODO: Remove staticity of BinFileHelper
     BinFileHelper *dSReader;
     StarBlockFactory *SBFactory;
-    starData stardata;
-    deepStarData deepstardata;
+    StarData stardata;
+    DeepStarData deepstardata;
     FILE *dataFile;
 
     dSReader  = parent->getStarReader();
@@ -128,9 +117,9 @@ bool StarBlockList::fillToMag(float maglim)
 
         if (nBlocks == 0 || blocks[nBlocks - 1]->isFull())
         {
-            StarBlock *newBlock;
-            newBlock = SBFactory->getBlock();
-            if (!newBlock)
+            std::shared_ptr<StarBlock> newBlock = SBFactory->getBlock();
+
+            if (!newBlock.get())
             {
                 qWarning() << "ERROR: Could not get a new block from StarBlockFactory::getBlock() in trixel " << trixel
                            << ", while trying to create block #" << nBlocks + 1 << endl;
@@ -148,18 +137,18 @@ bool StarBlockList::fillToMag(float maglim)
         // TODO: Make this more general
         if (dSReader->guessRecordSize() == 32)
         {
-            ret = fread(&stardata, sizeof(starData), 1, dataFile);
+            ret = fread(&stardata, sizeof(StarData), 1, dataFile);
             if (dSReader->getByteSwap())
                 DeepStarComponent::byteSwap(&stardata);
-            readOffset += sizeof(starData);
+            readOffset += sizeof(StarData);
             blocks[nBlocks - 1]->addStar(stardata);
         }
         else
         {
-            ret = fread(&deepstardata, sizeof(deepStarData), 1, dataFile);
+            ret = fread(&deepstardata, sizeof(DeepStarData), 1, dataFile);
             if (dSReader->getByteSwap())
                 DeepStarComponent::byteSwap(&deepstardata);
-            readOffset += sizeof(deepStarData);
+            readOffset += sizeof(DeepStarData);
             blocks[nBlocks - 1]->addStar(deepstardata);
         }
 
@@ -176,7 +165,7 @@ bool StarBlockList::fillToMag(float maglim)
     return ((maglim < faintMag) ? true : false);
 }
 
-void StarBlockList::setStaticBlock(StarBlock *block)
+void StarBlockList::setStaticBlock(std::shared_ptr<StarBlock> &block)
 {
     if (!block)
         return;

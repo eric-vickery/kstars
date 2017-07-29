@@ -27,7 +27,7 @@
 #include "skycomponents/linelist.h"
 #include "skycomponents/linelistlabel.h"
 #include "skycomponents/satellitescomponent.h"
-#include "skycomponents/skiplist.h"
+#include "skycomponents/skiphashlist.h"
 #include "skycomponents/skymapcomposite.h"
 #include "skycomponents/solarsystemcomposite.h"
 #include "skyobjects/constellationsart.h"
@@ -82,7 +82,7 @@ const int nSPclasses = 7;
 // Cache for star images.
 //
 // These pixmaps are never deallocated. Not really good...
-QPixmap *imageCache[nSPclasses][nStarSizes] = { { 0 } };
+QPixmap *imageCache[nSPclasses][nStarSizes] = { { nullptr } };
 
 std::unique_ptr<QPixmap> visibleSatPixmap, invisibleSatPixmap;
 }
@@ -93,7 +93,7 @@ QMap<char, QColor> SkyQPainter::ColorMap = QMap<char, QColor>();
 
 void SkyQPainter::releaseImageCache()
 {
-    foreach (char color, ColorMap.keys())
+    for (char &color : ColorMap.keys())
     {
         QPixmap **pmap = imageCache[harvardToIndex(color)];
 
@@ -112,7 +112,6 @@ SkyQPainter::SkyQPainter(QPaintDevice *pd) : SkyPainter(), QPainter()
     Q_ASSERT(pd);
     m_pd          = pd;
     m_size        = QSize(pd->width(), pd->height());
-    m_vectorStars = false;
 }
 
 SkyQPainter::SkyQPainter(QPaintDevice *pd, const QSize &size) : SkyPainter(), QPainter()
@@ -120,7 +119,6 @@ SkyQPainter::SkyQPainter(QPaintDevice *pd, const QSize &size) : SkyPainter(), QP
     Q_ASSERT(pd);
     m_pd          = pd;
     m_size        = size;
-    m_vectorStars = false;
 }
 
 SkyQPainter::SkyQPainter(QWidget *widget, QPaintDevice *pd) : SkyPainter(), QPainter()
@@ -129,7 +127,6 @@ SkyQPainter::SkyQPainter(QWidget *widget, QPaintDevice *pd) : SkyPainter(), QPai
     // Set paint device pointer to pd or to the widget if pd = 0
     m_pd          = (pd ? pd : widget);
     m_size        = widget->size();
-    m_vectorStars = false;
 }
 
 SkyQPainter::~SkyQPainter()
@@ -205,7 +202,7 @@ void SkyQPainter::initStarImages()
         ColorMap.insert('M', m_starColor);
     }
 
-    foreach (char color, ColorMap.keys())
+    for (char &color : ColorMap.keys())
     {
         QPixmap BigImage(15, 15);
         BigImage.fill(Qt::transparent);
@@ -273,24 +270,24 @@ void SkyQPainter::drawSkyLine(SkyPoint *a, SkyPoint *b)
     return;
 
     //THREE CASES:
-    if (aVisible && bVisible)
-    {
-        //Both a,b visible, so paint the line normally:
-        drawLine(aScreen, bScreen);
-    }
-    else if (aVisible)
-    {
-        //a is visible but b isn't:
-        drawLine(aScreen, m_proj->clipLine(a, b));
-    }
-    else if (bVisible)
-    {
-        //b is visible but a isn't:
-        drawLine(bScreen, m_proj->clipLine(b, a));
-    } //FIXME: what if both are offscreen but the line isn't?
+//    if (aVisible && bVisible)
+//    {
+//        //Both a,b visible, so paint the line normally:
+//        drawLine(aScreen, bScreen);
+//    }
+//    else if (aVisible)
+//    {
+//        //a is visible but b isn't:
+//        drawLine(aScreen, m_proj->clipLine(a, b));
+//    }
+//    else if (bVisible)
+//    {
+//        //b is visible but a isn't:
+//        drawLine(bScreen, m_proj->clipLine(b, a));
+//    } //FIXME: what if both are offscreen but the line isn't?
 }
 
-void SkyQPainter::drawSkyPolyline(LineList *list, SkipList *skipList, LineListLabel *label)
+void SkyQPainter::drawSkyPolyline(LineList *list, SkipHashList *skipList, LineListLabel *label)
 {
     SkyList *points = list->points();
     bool isVisible, isVisibleLast;
@@ -774,8 +771,6 @@ void SkyQPainter::drawDeepSkySymbol(const QPointF &pos, int type, float size, fl
 
         case 5:  //Gaseous Nebula
         case 15: // Dark Nebula
-            if (size < 2.)
-                size = 2.;
             save();
             translate(x, y);
             rotate(positionAngle); //rotate the coordinate system
@@ -801,8 +796,6 @@ void SkyQPainter::drawDeepSkySymbol(const QPointF &pos, int type, float size, fl
             restore(); //reset coordinate system
             break;
         case 7: //Supernova remnant // FIXME: Why is SNR drawn different from a gaseous nebula?
-            if (size < 2)
-                size = 2;
             save();
             translate(x, y);
             rotate(positionAngle); //rotate the coordinate system
@@ -837,9 +830,6 @@ void SkyQPainter::drawDeepSkySymbol(const QPointF &pos, int type, float size, fl
         {
             tempBrush = brush();
             setBrush(QBrush());
-            psize = 1.;
-            if (size > 50.)
-                psize *= 2.;
             color = pen().color().name();
             save();
             translate(x, y);

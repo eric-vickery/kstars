@@ -7,23 +7,15 @@
     version 2 of the License, or (at your option) any later version.
 */
 
-#include <QDialogButtonBox>
-#include <QDesktopServices>
-
-#include <KMessageBox>
-
-#include "Options.h"
-
-#include "kstarsdata.h"
-#include "geolocation.h"
-#include "auxiliary/ksuserdb.h"
-#include "guide/guide.h"
-
-#include "indi/drivermanager.h"
-#include "indi/driverinfo.h"
-
 #include "profileeditor.h"
-#include "profileinfo.h"
+
+#include "geolocation.h"
+#include "kstarsdata.h"
+#include "Options.h"
+#include "guide/guide.h"
+#include "indi/driverinfo.h"
+#include "indi/drivermanager.h"
+#include "oal/equipmentwriter.h"
 
 ProfileEditorUI::ProfileEditorUI(QWidget *p) : QFrame(p)
 {
@@ -59,8 +51,17 @@ ProfileEditor::ProfileEditor(QWidget *w) : QDialog(w)
 
     connect(ui->INDIWebManagerCheck, SIGNAL(toggled(bool)), ui->openWebManagerB, SLOT(setEnabled(bool)));
 
-
     connect(ui->guideTypeCombo, SIGNAL(activated(int)), this, SLOT(updateGuiderSelection(int)));
+
+    ui->addScopeB->setIcon(QIcon::fromTheme("list-add", QIcon(":/icons/breeze/default/list-add.svg")));
+    connect(ui->addScopeB, &QPushButton::clicked, this, [this]()
+    {
+        QPointer<EquipmentWriter> equipmentdlg = new EquipmentWriter();
+        equipmentdlg->loadEquipment();
+        equipmentdlg->exec();
+        delete equipmentdlg;
+        loadScopeEquipment();
+    });
 
 #ifdef Q_OS_WIN
     ui->remoteMode->setChecked(true);
@@ -72,10 +73,62 @@ ProfileEditor::ProfileEditor(QWidget *w) : QDialog(w)
 
     // Load all drivers
     loadDrivers();
+    // Load scope equipment
+    loadScopeEquipment();
 }
 
 ProfileEditor::~ProfileEditor()
 {
+}
+
+void ProfileEditor::loadScopeEquipment()
+{
+    // Get all OAL equipment filter list
+    KStarsData::Instance()->userdb()->GetAllScopes(m_scopeList);
+
+    ui->primaryScopeCombo->clear();
+    ui->guideScopeCombo->clear();
+
+    ui->primaryScopeCombo->addItem(i18n("Default"));
+    ui->primaryScopeCombo->setItemData(0, i18n("Use scope data from INDI"), Qt::ToolTipRole);
+    ui->guideScopeCombo->addItem(i18n("Default"));
+    ui->guideScopeCombo->setItemData(0, i18n("Use scope data from INDI"), Qt::ToolTipRole);
+
+    int primaryScopeIndex=0;
+    int guideScopeIndex=0;
+
+    for (int i=0; i < m_scopeList.count(); i++)
+    {
+        OAL::Scope *oneScope = m_scopeList[i];
+
+        ui->primaryScopeCombo->addItem(oneScope->name());
+        if (pi && oneScope->id().toInt() == pi->primaryscope)
+            primaryScopeIndex = i+1;
+
+        ui->guideScopeCombo->addItem(oneScope->name());
+        if (pi && oneScope->id().toInt() == pi->guidescope)
+            guideScopeIndex = i+1;
+
+        double FocalLength = oneScope->focalLength();
+        double Aperture = oneScope->aperture();
+
+        ui->primaryScopeCombo->setItemData(i+1,
+            i18nc("F-Number, Focal Length, Aperture",
+                  "<nobr>F<b>%1</b> Focal Length: <b>%2</b> mm Aperture: <b>%3</b> mm<sup>2</sup></nobr>",
+                  QString::number(FocalLength / Aperture, 'f', 1), QString::number(FocalLength, 'f', 2),
+                  QString::number(Aperture, 'f', 2)),
+            Qt::ToolTipRole);
+
+        ui->guideScopeCombo->setItemData(i+1,
+            i18nc("F-Number, Focal Length, Aperture",
+                  "<nobr>F<b>%1</b> Focal Length: <b>%2</b> mm Aperture: <b>%3</b> mm<sup>2</sup></nobr>",
+                  QString::number(FocalLength / Aperture, 'f', 1), QString::number(FocalLength, 'f', 2),
+                  QString::number(Aperture, 'f', 2)),
+            Qt::ToolTipRole);
+    }
+
+    ui->primaryScopeCombo->setCurrentIndex(primaryScopeIndex);
+    ui->guideScopeCombo->setCurrentIndex(guideScopeIndex);
 }
 
 void ProfileEditor::saveProfile()
@@ -139,6 +192,21 @@ void ProfileEditor::saveProfile()
     {
         pi->guiderhost = ui->externalGuideHost->text();
         pi->guiderport = ui->externalGuidePort->text().toInt();
+    }
+
+    // Scope list
+    pi->primaryscope=0;
+    pi->guidescope=0;
+
+    QString selectedScope = ui->primaryScopeCombo->currentText();
+    QString selectedGuide = ui->guideScopeCombo->currentText();
+
+    foreach(OAL::Scope *oneScope, m_scopeList)
+    {
+        if (selectedScope == oneScope->name())
+            pi->primaryscope = oneScope->id().toInt();
+        if (selectedGuide == oneScope->name())
+            pi->guidescope = oneScope->id().toInt();
     }
 
     if (ui->mountCombo->currentText().isEmpty() || ui->mountCombo->currentText() == "--")
@@ -210,11 +278,6 @@ void ProfileEditor::saveProfile()
     accept();
 }
 
-ProfileInfo *ProfileEditor::getPi() const
-{
-    return pi;
-}
-
 void ProfileEditor::setRemoteMode(bool enable)
 {
     loadDrivers(); //This is needed to reload the drivers because some may not be available locally
@@ -260,10 +323,10 @@ void ProfileEditor::setPi(ProfileInfo *value)
     if (pi->city.isEmpty() == false)
     {
         if (pi->province.isEmpty())
-            ui->loadSiteCheck->setText(ui->loadSiteCheck->text() + QString(" (%1, %2)").arg(pi->country).arg(pi->city));
+            ui->loadSiteCheck->setText(ui->loadSiteCheck->text() + QString(" (%1, %2)").arg(pi->country, pi->city));
         else
             ui->loadSiteCheck->setText(ui->loadSiteCheck->text() +
-                                       QString(" (%1, %2, %3)").arg(pi->country).arg(pi->province).arg(pi->city));
+                                       QString(" (%1, %2, %3)").arg(pi->country, pi->province, pi->city));
     }
 
     if (pi->host.isEmpty() == false)
@@ -331,8 +394,8 @@ void ProfileEditor::setPi(ProfileInfo *value)
                 ui->guiderCombo->addItem(value);
                 row = ui->guiderCombo->count() - 1;
             }
-            else
-                ui->guiderCombo->setCurrentIndex(row);
+
+            ui->guiderCombo->setCurrentIndex(row);
         }
         else if (key == "Focuser")
         {
@@ -425,6 +488,8 @@ void ProfileEditor::setPi(ProfileInfo *value)
             ui->aux4Combo->setCurrentIndex(row);
         }
     }
+
+    loadScopeEquipment();
 }
 
 void ProfileEditor::loadDrivers()

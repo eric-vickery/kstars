@@ -13,11 +13,13 @@
  *   (at your option) any later version.                                   *
  *                                                                         *
  ***************************************************************************/
-#ifndef TRIXELNODE_H_
-#define TRIXELNODE_H_
 
-#include "../skyopacitynode.h"
+#pragma once
+
 #include "typedef.h"
+#include "../skyopacitynode.h"
+
+#include <QLinkedList>
 
 class SkyObject;
 class SkyNode;
@@ -29,11 +31,13 @@ class SkyNode;
 class TrixelNode : public SkyOpacityNode
 {
   public:
-    /** Constructor. **/
-    TrixelNode(Trixel trixel);
+    /** Constructor **/
+    explicit TrixelNode(const Trixel &trixel);
 
-    /** m_hideCount is a counter of how much updates of SkyMapLite this trixel remained
-            hidden. Used to reduce memory consumption**/
+    /**
+     * m_hideCount is a counter of how much updates of SkyMapLite this trixel remained
+     * hidden. Used to reduce memory consumption
+     **/
     inline int hideCount() { return m_hideCount; }
 
     /** Whenever the corresponding trixel is visible, m_hideCount is reset */
@@ -44,9 +48,7 @@ class TrixelNode : public SkyOpacityNode
 
     inline Trixel trixelID() { return m_trixel; }
 
-    /**
-         * @short m_nodes - holds SkyNodes with corresponding SkyObjects
-         */
+    /** m_nodes - holds SkyNodes with corresponding SkyObjects */
     QLinkedList<QPair<SkyObject *, SkyNode *>> m_nodes;
 
     /** @short Delete all childNodes and remove nodes from pairs in m_nodes **/
@@ -54,7 +56,5 @@ class TrixelNode : public SkyOpacityNode
 
   private:
     Trixel m_trixel;
-    int m_hideCount;
+    int m_hideCount { 0 };
 };
-
-#endif

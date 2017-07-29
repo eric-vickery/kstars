@@ -24,7 +24,11 @@
 #include <kxmlguiwindow.h>
 
 #include <QDockWidget>
+#if QT_VERSION >= QT_VERSION_CHECK(5, 8, 0)
+#include <QtDBus/qtdbusglobal.h>
+#else
 #include <QtDBus/qdbusmacros.h>
+#endif
 #ifdef HAVE_CFITSIO
 #include <QPointer>
 #endif
@@ -110,8 +114,6 @@ class KStars : public KXmlGuiWindow
          * @todo Refer to documentation on date format.
          */
     explicit KStars(bool doSplash, bool startClockRunning = true, const QString &startDateString = QString());
-
-    static KStars *pinstance; // Pointer to an instance of KStars
 
   public:
     /**
@@ -680,6 +682,16 @@ class KStars : public KXmlGuiWindow
 
     /** Build the KStars main window */
     void buildGUI();
+
+    virtual void closeEvent(QCloseEvent *event);
+
+  public:
+    /// Set to true when the application is being closed
+    static bool Closing;
+
+  private:
+    /// Pointer to an instance of KStars
+    static KStars *pinstance;
 
     KActionMenu *colorActionMenu { nullptr };
     KActionMenu *fovActionMenu { nullptr };
