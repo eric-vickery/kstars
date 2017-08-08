@@ -24,9 +24,11 @@
 #include "kstars.h"
 #include "Options.h"
 
+#include "auxiliary/ksnotification.h"
+
 #include <basedevice.h>
 
-#include <QDebug>
+#include <indi_debug.h>
 
 #define NINDI_STD 35
 
@@ -109,8 +111,7 @@ ISD::GDInterface *INDIListener::getDevice(const QString &name)
 
 void INDIListener::addClient(ClientManager *cm)
 {
-    if (Options::iNDILogging())
-        qDebug() << "INDIListener: Adding a new client manager to INDI listener..";
+    qCDebug(KSTARS_INDI) << "INDIListener: Adding a new client manager to INDI listener..";
 
     Qt::ConnectionType type = Qt::BlockingQueuedConnection;
 
@@ -130,7 +131,9 @@ void INDIListener::addClient(ClientManager *cm)
     connect(cm, SIGNAL(newINDINumber(INumberVectorProperty*)), this, SLOT(processNumber(INumberVectorProperty*)));
     connect(cm, SIGNAL(newINDILight(ILightVectorProperty*)), this, SLOT(processLight(ILightVectorProperty*)));
     connect(cm, SIGNAL(newINDIBLOB(IBLOB*)), this, SLOT(processBLOB(IBLOB*)));
-    connect(cm, SIGNAL(newINDIMessage(INDI::BaseDevice*,int)), this, SLOT(processMessage(INDI::BaseDevice*,int)));
+    #if INDI_VERSION_MAJOR >= 1 && INDI_VERSION_MINOR >= 5
+    connect(cm, SIGNAL(newINDIUniversalMessage(QString)), this, SLOT(processUniversalMessage(QString)));
+    #endif
 }
 
 void INDIListener::removeClient(ClientManager *cm)
@@ -159,8 +162,7 @@ void INDIListener::removeClient(ClientManager *cm)
 
 void INDIListener::processDevice(DeviceInfo *dv)
 {
-    if (Options::iNDILogging())
-        qDebug() << "INDIListener: Processing device " << dv->getBaseDevice()->getDeviceName();
+    qCDebug(KSTARS_INDI) << "INDIListener: Processing device " << dv->getBaseDevice()->getDeviceName();
 
     ISD::GDInterface *gd = new ISD::GenericDevice(*dv);
 
@@ -171,8 +173,7 @@ void INDIListener::processDevice(DeviceInfo *dv)
 
 void INDIListener::removeDevice(DeviceInfo *dv)
 {
-    if (Options::iNDILogging())
-        qDebug() << "INDIListener: Removing device " << dv->getBaseDevice()->getDeviceName() << " with unique label "
+    qCDebug(KSTARS_INDI) << "INDIListener: Removing device " << dv->getBaseDevice()->getDeviceName() << " with unique label "
                  << dv->getDriverInfo()->getUniqueLabel();
 
     foreach (ISD::GDInterface *gd, devices)
@@ -204,8 +205,7 @@ void INDIListener::removeDevice(DeviceInfo *dv)
 
 void INDIListener::registerProperty(INDI::Property *prop)
 {
-    if (Options::iNDILogging())
-        qDebug() << "<" << prop->getDeviceName() << ">: <" << prop->getName() << ">";
+   qCDebug(KSTARS_INDI) << "<" << prop->getDeviceName() << ">: <" << prop->getName() << ">";
 
     foreach (ISD::GDInterface *gd, devices)
     {
@@ -405,4 +405,15 @@ void INDIListener::processMessage(INDI::BaseDevice *dp, int messageID)
             break;
         }
     }
+}
+
+void INDIListener::processUniversalMessage(const QString &message)
+{
+    QString displayMessage = message;
+    // Remove timestamp info as it is not suitable for message box
+    int colonIndex = displayMessage.indexOf(": ");
+    if (colonIndex > 0)
+        displayMessage = displayMessage.mid(colonIndex+2);
+
+    KSNotification::transient(displayMessage, i18n("INDI Server Message"));
 }

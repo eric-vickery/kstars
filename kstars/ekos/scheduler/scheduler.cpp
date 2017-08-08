@@ -29,6 +29,8 @@
 
 #include <KNotifications/KNotification>
 
+#include <ekos_scheduler_debug.h>
+
 #define BAD_SCORE               -1000
 #define MAX_FAILURE_ATTEMPTS    3
 #define UPDATE_PERIOD_MS        1000
@@ -250,8 +252,7 @@ void Scheduler::appendLogText(const QString &text)
     logText.insert(0, i18nc("log entry; %1 is the date, %2 is the text", "%1 %2",
                             QDateTime::currentDateTime().toString("yyyy-MM-ddThh:mm:ss"), text));
 
-    if (Options::verboseLogging())
-        qDebug() << "Scheduler: " << text;
+    qCInfo(KSTARS_EKOS_SCHEDULER) << text;
 
     emit newLog();
 }
@@ -834,8 +835,7 @@ void Scheduler::stop()
     if (state != SCHEDULER_RUNNIG)
         return;
 
-    if (Options::verboseLogging())
-        qDebug() << "Scheduler: Stop";
+    qCInfo(KSTARS_EKOS_SCHEDULER) << "Stopped.";
 
     // Stop running job and abort all others
     // in case of soft shutdown we skip this
@@ -960,8 +960,7 @@ void Scheduler::start()
         return;
     }
 
-    if (Options::verboseLogging())
-        qDebug() << "Scheduler: Start";
+    qCInfo(KSTARS_EKOS_SCHEDULER) << "Starting...";
 
     pi->startAnimation();
 
@@ -1654,8 +1653,7 @@ void Scheduler::checkWeather()
         {
             weatherStatus = newStatus;
 
-            if (Options::verboseLogging())
-                qDebug() << "Scheduler: " << statusString;
+            qCDebug(KSTARS_EKOS_SCHEDULER) << statusString;
 
             if (weatherStatus == IPS_OK)
                 weatherLabel->setPixmap(
@@ -1919,6 +1917,8 @@ void Scheduler::executeJob(SchedulerJob *job)
 
     currentJob = job;
 
+    qCInfo(KSTARS_EKOS_SCHEDULER) << "Executing Job " << currentJob->getName();
+
     currentJob->setState(SchedulerJob::JOB_BUSY);
 
     updatePreDawn();
@@ -1997,8 +1997,7 @@ bool Scheduler::checkINDIState()
     if (state == SCHEDULER_PAUSED)
         return false;
 
-    if (Options::verboseLogging())
-        qDebug() << "Scheduler: Checking INDI State...";
+    qCDebug(KSTARS_EKOS_SCHEDULER) << "Checking INDI State...";
 
     switch (indiState)
     {
@@ -2010,8 +2009,7 @@ bool Scheduler::checkINDIState()
             {
                 indiState = INDI_PROPERTY_CHECK;
 
-                if (Options::verboseLogging())
-                    qDebug() << "Scheduler: Checking INDI Properties...";
+                qCDebug(KSTARS_EKOS_SCHEDULER) << "Checking INDI Properties...";
 
                 return false;
             }
@@ -2022,8 +2020,7 @@ bool Scheduler::checkINDIState()
 
                 currentOperationTime.start();
 
-                if (Options::verboseLogging())
-                    qDebug() << "Scheduler: Connecting INDI Devices";
+                qCDebug(KSTARS_EKOS_SCHEDULER) << "Connecting INDI Devices";
 
                 return false;
             }
@@ -2133,8 +2130,7 @@ bool Scheduler::checkStartupState()
     if (state == SCHEDULER_PAUSED)
         return false;
 
-    if (Options::verboseLogging())
-        qDebug() << "Scheduler: Checking Startup State...";
+    qCDebug(KSTARS_EKOS_SCHEDULER) << "Checking Startup State...";
 
     switch (startupState)
     {
@@ -2142,8 +2138,7 @@ bool Scheduler::checkStartupState()
         {
             KNotification::event(QLatin1String("ObservatoryStartup"), i18n("Observatory is in the startup process"));
 
-            if (Options::verboseLogging())
-                qDebug() << "Scheduler: Startup Idle. Starting startup process...";
+            qCDebug(KSTARS_EKOS_SCHEDULER) << "Startup Idle. Starting startup process...";
 
             // If Ekos is already started, we skip the script and move on to dome unpark step
             // unless we do not have light frames, then we skip all
@@ -2246,16 +2241,14 @@ bool Scheduler::checkShutdownState()
     if (state == SCHEDULER_PAUSED)
         return false;
 
-    if (Options::verboseLogging())
-        qDebug() << "Scheduler: Checking shutown state...";
+    qCDebug(KSTARS_EKOS_SCHEDULER) << "Checking shutown state...";
 
     switch (shutdownState)
     {
         case SHUTDOWN_IDLE:
             KNotification::event(QLatin1String("ObservatoryShutdown"), i18n("Observatory is in the shutdown process"));
 
-            if (Options::verboseLogging())
-                qDebug() << "Scheduler: Starting shutdown process...";
+            qCInfo(KSTARS_EKOS_SCHEDULER) << "Starting shutdown process...";
 
             weatherTimer.stop();
             weatherTimer.disconnect();
@@ -2380,8 +2373,7 @@ bool Scheduler::checkParkWaitState()
     if (state == SCHEDULER_PAUSED)
         return false;
 
-    if (Options::verboseLogging())
-        qDebug() << "Scheduler: Checking Park Wait State...";
+    qCDebug(KSTARS_EKOS_SCHEDULER) << "Checking Park Wait State...";
 
     switch (parkWaitState)
     {
@@ -2651,8 +2643,7 @@ void Scheduler::checkJobStage()
                 return;
             }
 
-            if (Options::verboseLogging())
-                qDebug() << "Scheduler: Slewing Stage... Slew Status is "
+            qCDebug(KSTARS_EKOS_SCHEDULER) << "Slewing Stage... Slew Status is "
                          << pstateStr(static_cast<IPState>(slewStatus.value()));
 
             if (slewStatus.value() == IPS_OK && isDomeMoving == false)
@@ -2686,8 +2677,7 @@ void Scheduler::checkJobStage()
                 return;
             }
 
-            if (Options::verboseLogging())
-                qDebug() << "Scheduler: Focus stage...";
+            qCDebug(KSTARS_EKOS_SCHEDULER) << "Focus stage...";
 
             Ekos::FocusState focusStatus = static_cast<Ekos::FocusState>(focusReply.value());
 
@@ -2782,8 +2772,7 @@ void Scheduler::checkJobStage()
         {
             QDBusReply<int> alignReply;
 
-            if (Options::verboseLogging())
-                qDebug() << "Scheduler: Alignment stage...";
+            qCDebug(KSTARS_EKOS_SCHEDULER) << "Alignment stage...";
 
 #if 0
             if (currentJob->getFITSFile().isEmpty() == false && loadAndSlewProgress)
@@ -2791,7 +2780,7 @@ void Scheduler::checkJobStage()
                 QDBusReply<int> loadSlewReply = alignInterface->call(QDBus::AutoDetect,"getLoadAndSlewStatus");
 
                 if (Options::verboseLogging())
-                    qDebug() << "Scheduler: Checking Load And Slew Status";
+                    qDebug() << "Checking Load And Slew Status";
 
                 if (loadSlewReply.value() == IPS_OK)
                 {
@@ -2865,8 +2854,7 @@ void Scheduler::checkJobStage()
             QDBusReply<int> slewStatus = mountInterface->call(QDBus::AutoDetect, "getSlewStatus");
             bool isDomeMoving          = false;
 
-            if (Options::verboseLogging())
-                qDebug() << "Scheduler: Re-slewing stage...";
+            qCDebug(KSTARS_EKOS_SCHEDULER) << "Re-slewing stage...";
 
             if (parkDomeCheck->isEnabled())
             {
@@ -2905,8 +2893,7 @@ void Scheduler::checkJobStage()
         {
             QDBusReply<int> guideReply = guideInterface->call(QDBus::AutoDetect, "getStatus");
 
-            if (Options::verboseLogging())
-                qDebug() << "Scheduler: Calibration & Guide stage...";
+            qCDebug(KSTARS_EKOS_SCHEDULER) << "Calibration & Guide stage...";
 
             if (guideReply.error().type() == QDBusError::UnknownObject)
             {
@@ -2955,7 +2942,7 @@ void Scheduler::checkJobStage()
             QDBusReply<bool> guideReply = guideInterface->call(QDBus::AutoDetect,"isCalibrationComplete");
 
             if (Options::verboseLogging())
-                qDebug() << "Scheduler: Calibration & Guide stage...";
+                qDebug() << "Calibration & Guide stage...";
 
             if (guideReply.error().type() == QDBusError::UnknownObject)
             {
@@ -3072,8 +3059,7 @@ void Scheduler::checkJobStage()
 
 void Scheduler::getNextAction()
 {
-    if (Options::verboseLogging())
-        qDebug() << "Scheduler: Get next action...";
+    qCDebug(KSTARS_EKOS_SCHEDULER) << "Get next action...";
 
     switch (currentJob->getStage())
     {
@@ -3155,8 +3141,7 @@ void Scheduler::getNextAction()
 
 void Scheduler::stopCurrentJobAction()
 {
-    if (Options::verboseLogging())
-        qDebug() << "Scheduler: Stop current action...";
+    qCDebug(KSTARS_EKOS_SCHEDULER) << "Stop current action..." << currentJob->getStage();
 
     switch (currentJob->getStage())
     {
@@ -3714,8 +3699,7 @@ void Scheduler::findNextJob()
 {
     jobTimer.stop();
 
-    if (Options::verboseLogging())
-        qDebug() << "Scheduler: Find next job...";
+    qCDebug(KSTARS_EKOS_SCHEDULER) << "Find next job...";
 
     if (currentJob->getState() == SchedulerJob::JOB_ERROR)
     {
@@ -3933,8 +3917,7 @@ void Scheduler::setSolverAction(Align::GotoMode mode)
 
 void Scheduler::stopEkos()
 {
-    if (Options::verboseLogging())
-        qDebug() << "Scheduler: Stopping Ekos...";
+    qCInfo(KSTARS_EKOS_SCHEDULER) << "Stopping Ekos...";
 
     indiConnectFailureCount = 0;
     ekosInterface->call(QDBus::AutoDetect, "disconnectDevices");
@@ -4562,7 +4545,7 @@ void Scheduler::startMosaicTool()
         // #4 Change Target name to Target-Part#
         // #5 Update J2000 coords
         // #6 Repeat and save Ekos Scheduler List in the output directory
-        qDebug() << "Job accepted with # " << mosaicTool.getJobs().size() << " jobs and fits dir "
+        qCDebug(KSTARS_EKOS_SCHEDULER) << "Job accepted with # " << mosaicTool.getJobs().size() << " jobs and fits dir "
                  << mosaicTool.getJobsDir();
 
         QString outputDir  = mosaicTool.getJobsDir();

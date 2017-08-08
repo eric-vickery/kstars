@@ -17,6 +17,8 @@
 #include "Options.h"
 #include "servermanager.h"
 
+#include <indi_debug.h>
+
 ClientManager::ClientManager()
 {
 }
@@ -44,12 +46,11 @@ void ClientManager::newDevice(INDI::BaseDevice *dp)
 
     if (QString(dp->getDeviceName()).isEmpty())
     {
-        qWarning() << "Received invalid device with empty name! Ignoring the device...";
+        qCWarning(KSTARS_INDI) << "Received invalid device with empty name! Ignoring the device...";
         return;
     }
 
-    if (Options::verboseLogging())
-        qDebug() << "Received new device " << dp->getDeviceName();
+    qCDebug(KSTARS_INDI) << "Received new device " << dp->getDeviceName();
 
     // First iteration find unique matches
     foreach (DriverInfo *dv, managedDrivers)
@@ -155,6 +156,13 @@ void ClientManager::newMessage(INDI::BaseDevice *dp, int messageID)
 {
     emit newINDIMessage(dp, messageID);
 }
+
+#if INDI_VERSION_MAJOR >= 1 && INDI_VERSION_MINOR >= 5
+void ClientManager::newUniversalMessage(std::string message)
+{
+    emit newINDIUniversalMessage(QString::fromStdString(message));
+}
+#endif
 
 void ClientManager::appendManagedDriver(DriverInfo *dv)
 {

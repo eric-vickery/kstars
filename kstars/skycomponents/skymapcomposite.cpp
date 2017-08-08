@@ -60,6 +60,8 @@
 
 #include <QApplication>
 
+#include <kstars_debug.h>
+
 SkyMapComposite::SkyMapComposite(SkyComposite *parent) : SkyComposite(parent), m_reindexNum(J2000)
 {
     m_skyLabeler.reset(SkyLabeler::Instance());
@@ -375,12 +377,12 @@ void SkyMapComposite::draw(SkyPainter *skyp)
 /*
     QPainter *psky = dynamic_cast< QPainter *>( skyp );
     if( psky ) {
-        qDebug() << "Drawing trixel boundaries for debugging.";
+        qCDebug(KSTARS) << "Drawing trixel boundaries for debugging.";
         psky->setPen(  QPen( QBrush( QColor( "yellow" ) ), 1, Qt::SolidLine ) );
         m_skyMesh->draw( *psky, OBJ_NEAREST_BUF );
         SkyMesh *p;
         if( p = SkyMesh::Instance( 6 ) ) {
-            qDebug() << "We have a deep sky mesh to draw";
+            qCDebug(KSTARS) << "We have a deep sky mesh to draw";
             p->draw( *psky, OBJ_NEAREST_BUF );
         }
 
@@ -502,7 +504,7 @@ SkyObject *SkyMapComposite::objectNearest(SkyPoint *p, double &maxrad)
 
     rTry = maxrad;
     oTry = m_Supernovae->objectNearest(p, rTry);
-    //qDebug()<<rTry<<rBest<<maxrad;
+    //qCDebug(KSTARS)<<rTry<<rBest<<maxrad;
     if (rTry < rBest)
     {
         rBest = rTry;
@@ -510,7 +512,7 @@ SkyObject *SkyMapComposite::objectNearest(SkyPoint *p, double &maxrad)
     }
 
     //if ( oBest && Options::verboseLogging())
-    //qDebug() << "OBEST=" << oBest->name() << " - " << oBest->name2();
+    //qCDebug(KSTARS) << "OBEST=" << oBest->name() << " - " << oBest->name2();
     maxrad = rBest;
     return oBest; //will be 0 if no object nearer than maxrad was found
 }
@@ -683,9 +685,9 @@ void SkyMapComposite::reloadCLines()
     Q_ASSERT(!SkyMapDrawAbstract::drawLock());
     SkyMapDrawAbstract::setDrawLock(
         true); // This is not (yet) multithreaded, so I think we don't have to worry about overwriting the state of an existing lock --asimha
+    removeComponent(m_CLines);
     delete m_CLines;
-    m_CLines = 0;
-    m_CLines = new ConstellationLines(this, m_Cultures.get());
+    addComponent(m_CLines = new ConstellationLines(this, m_Cultures.get()));
     SkyMapDrawAbstract::setDrawLock(false);
 #endif
 }
@@ -700,8 +702,9 @@ void SkyMapComposite::reloadCNames()
     //     m_CNames = new ConstellationNamesComponent( this, m_Cultures.get() );
     //     SkyMapDrawAbstract::setDrawLock( false );
     objectNames(SkyObject::CONSTELLATION).clear();
+    removeComponent(m_CNames);
     delete m_CNames;
-    m_CNames = new ConstellationNamesComponent(this, m_Cultures.get());
+    addComponent(m_CNames = new ConstellationNamesComponent(this, m_Cultures.get()));
 }
 
 void SkyMapComposite::reloadConstellationArt()
@@ -709,9 +712,9 @@ void SkyMapComposite::reloadConstellationArt()
 #ifndef KSTARS_LITE
     Q_ASSERT(!SkyMapDrawAbstract::drawLock());
     SkyMapDrawAbstract::setDrawLock(true);
+    removeComponent(m_ConstellationArt);
     delete m_ConstellationArt;
-    m_ConstellationArt = 0;
-    m_ConstellationArt = new ConstellationArtComponent(this, m_Cultures.get());
+    addComponent(m_ConstellationArt = new ConstellationArtComponent(this, m_Cultures.get()));
     SkyMapDrawAbstract::setDrawLock(false);
 #endif
 }
@@ -729,6 +732,7 @@ void SkyMapComposite::reloadDeepSky()
     SkyMap *current_map   = KStars::Instance()->map();
     double maxrad         = 30.0;
     SkyPoint center_point = current_map->getCenterPoint();
+
     current_map->setClickedObject(KStars::Instance()->data()->skyComposite()->starNearest(&center_point, maxrad));
     current_map->setClickedPoint(current_map->clickedObject());
     current_map->slotCenter();
@@ -737,14 +741,16 @@ void SkyMapComposite::reloadDeepSky()
     //
     // FIXME: Why should we do this? Because it messes up observing
     // list really bad to delete and regenerate SkyObjects.
-
     SkyMapDrawAbstract::setDrawLock(true);
     m_CustomCatalogs.reset(new SkyComposite(this));
+    removeComponent(m_internetResolvedComponent);
     delete m_internetResolvedComponent;
     addComponent(m_internetResolvedComponent = new SyncedCatalogComponent(this, m_internetResolvedCat, true, 0), 6);
+    removeComponent(m_manualAdditionsComponent);
     delete m_manualAdditionsComponent;
     addComponent(m_manualAdditionsComponent = new SyncedCatalogComponent(this, m_manualAdditionsCat, true, 0), 6);
     QStringList allcatalogs = Options::showCatalogNames();
+
     for (int i = 0; i < allcatalogs.size(); ++i)
     {
         if (allcatalogs.at(i) == m_internetResolvedCat ||
@@ -775,7 +781,7 @@ void SkyMapComposite::emitProgressText(const QString &message)
     //Can cause crashes on Android, investigate it
     qApp->processEvents(); // -jbb: this seemed to make it work.
 #endif
-    //qDebug() << QString("PROGRESS TEXT: %1\n").arg( message );
+    //qCDebug(KSTARS) << QString("PROGRESS TEXT: %1\n").arg( message );
 }
 
 const QList<DeepSkyObject *> &SkyMapComposite::deepSkyObjects() const

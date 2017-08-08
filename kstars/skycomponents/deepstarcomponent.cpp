@@ -33,6 +33,8 @@
 #include <qplatformdefs.h>
 #include <QtConcurrent>
 
+#include <kstars_debug.h>
+
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -450,13 +452,13 @@ bool DeepStarComponent::openDataFile()
         else
             m_FaintMagnitude = faintmag / 100.0;
         ret = fread(&htm_level, 1, 1, starReader.getFileHandle());
-        qDebug() << "Processing " << dataFileName << ", HTMesh Level" << htm_level;
+        qCInfo(KSTARS) << "Processing " << dataFileName << ", HTMesh Level" << htm_level;
         m_skyMesh = SkyMesh::Instance(htm_level);
         if (!m_skyMesh)
         {
             if (!(m_skyMesh = SkyMesh::Create(htm_level)))
             {
-                qDebug() << "Could not create HTMesh of level " << htm_level << " for catalog " << dataFileName
+                qCWarning(KSTARS) << "Could not create HTMesh of level " << htm_level << " for catalog " << dataFileName
                          << ". Skipping it.";
                 return false;
             }
@@ -465,14 +467,14 @@ bool DeepStarComponent::openDataFile()
         if (starReader.getByteSwap())
             MSpT = bswap_16(MSpT);
         fileOpened = true;
-        qDebug() << "  Sky Mesh Size: " << m_skyMesh->size();
+        qCInfo(KSTARS) << "  Sky Mesh Size: " << m_skyMesh->size();
         for (long int i = 0; i < m_skyMesh->size(); i++)
         {
             std::shared_ptr<StarBlockList> sbl(new StarBlockList(i, this));
 
             if (!sbl.get())
             {
-                qDebug() << "nullptr starBlockList. Expect trouble!";
+                qCWarning(KSTARS) << "nullptr starBlockList. Expect trouble!";
             }
             m_starBlockList.append(sbl);
         }
@@ -639,16 +641,16 @@ bool DeepStarComponent::verifySBLIntegrity()
             // NOTE: Assumes 2 decimal places in magnitude field. TODO: Change if it ever does change
             if (block->getBrightMag() != faintMag && (block->getBrightMag() - faintMag) > 0.5)
             {
-                qDebug() << "Trixel " << trixel << ": ERROR: faintMag of prev block = " << faintMag
+                qCWarning(KSTARS) << "Trixel " << trixel << ": ERROR: faintMag of prev block = " << faintMag
                          << ", brightMag of block #" << i << " = " << block->getBrightMag();
                 integrity = false;
             }
             if (i > 1 && (!block->prev))
-                qDebug() << "Trixel " << trixel << ": ERROR: Block" << i << "is unlinked in LRU Cache";
+                qCWarning(KSTARS) << "Trixel " << trixel << ": ERROR: Block" << i << "is unlinked in LRU Cache";
             if (block->prev && block->prev->parent == m_starBlockList[trixel].get() &&
                 block->prev != m_starBlockList[trixel]->block(i - 1))
             {
-                qDebug() << "Trixel " << trixel
+                qCWarning(KSTARS) << "Trixel " << trixel
                          << ": ERROR: SBF LRU Cache linked list seems to be broken at before block " << i << endl;
                 integrity = false;
             }

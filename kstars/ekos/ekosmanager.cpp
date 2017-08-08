@@ -40,6 +40,8 @@
 
 #include <QComboBox>
 
+#include <ekos_debug.h>
+
 #define MAX_REMOTE_INDI_TIMEOUT 15000
 #define MAX_LOCAL_INDI_TIMEOUT  5000
 
@@ -801,8 +803,7 @@ void EkosManager::cleanDevices(bool stopDrivers)
 
 void EkosManager::processNewDevice(ISD::GDInterface *devInterface)
 {
-    if (Options::verboseLogging())
-        qDebug() << "Ekos received a new device: " << devInterface->getDeviceName();
+    qCInfo(KSTARS_EKOS) << "Ekos received a new device: " << devInterface->getDeviceName();
 
     // Always reset INDI Connection status if we receive a new device
     indiConnectionStatus = EKOS_STATUS_IDLE;
@@ -843,7 +844,7 @@ void EkosManager::deviceConnected()
     if (Options::verboseLogging())
     {
         ISD::GDInterface *device = (ISD::GDInterface *)sender();
-        qDebug() << "Ekos: " << device->getDeviceName() << "is connected.";
+        qCInfo(KSTARS_EKOS) << device->getDeviceName() << "is connected.";
     }
 
     int nConnectedDevices = 0;
@@ -854,13 +855,13 @@ void EkosManager::deviceConnected()
             nConnectedDevices++;
     }
 
-    qDebug() << "Ekos: " << nConnectedDevices << " devices connected out of " << genericDevices.count();
+    qCDebug(KSTARS_EKOS) << nConnectedDevices << " devices connected out of " << genericDevices.count();
 
     //if (nConnectedDevices >= pi->drivers.count())
     if (nConnectedDevices >= genericDevices.count())
     {
         indiConnectionStatus = EKOS_STATUS_SUCCESS;
-        qDebug() << "Ekos: All INDI devices are now connected.";
+        qCInfo(KSTARS_EKOS)<< "All INDI devices are now connected.";
     }
     else
         indiConnectionStatus = EKOS_STATUS_PENDING;
@@ -929,7 +930,7 @@ void EkosManager::deviceDisconnected()
             indiConnectionStatus = EKOS_STATUS_IDLE;
 
         if (Options::verboseLogging())
-            qDebug() << "Ekos: " << dev->getDeviceName() << " is disconnected.";
+            qCDebug(KSTARS_EKOS) << dev->getDeviceName() << " is disconnected.";
 
         appendLogText(i18n("%1 is disconnected.", dev->getDeviceName()));
     }
@@ -981,44 +982,22 @@ void EkosManager::setTelescope(ISD::GDInterface *scopeDevice)
 
     mountProcess->setTelescope(scopeDevice);
 
-    ProfileInfo *pi = getCurrentProfile();
-    if (pi)
-    {
-        int primaryScopeID=0, guideScopeID=0;
-        primaryScopeID=pi->primaryscope;
-        guideScopeID=pi->guidescope;
-        if (primaryScopeID > 0 || guideScopeID > 0)
-        {
-            double primaryScopeFL=0, primaryScopeAperture=0, guideScopeFL=0, guideScopeAperture=0;
-
-            // Get all OAL equipment filter list
-            QList<OAL::Scope*> m_scopeList;
-            KStarsData::Instance()->userdb()->GetAllScopes(m_scopeList);
-            foreach(OAL::Scope *oneScope, m_scopeList)
-            {
-                if (oneScope->id().toInt() == primaryScopeID)
-                {
-                    primaryScopeFL = oneScope->focalLength();
-                    primaryScopeAperture = oneScope->aperture();
-                }
-
-                if (oneScope->id().toInt() == guideScopeID)
-                {
-                    guideScopeFL = oneScope->focalLength();
-                    guideScopeAperture = oneScope->aperture();
-                }
-            }
-
-            // Save telescope info in mount driver
-            mountProcess->setTelescopeInfo(primaryScopeFL, primaryScopeAperture, guideScopeFL, guideScopeAperture);
-        }
-    }
+    double primaryScopeFL=0, primaryScopeAperture=0, guideScopeFL=0, guideScopeAperture=0;
+    getCurrentProfileTelescopeInfo(primaryScopeFL, primaryScopeAperture, guideScopeFL, guideScopeAperture);
+    // Save telescope info in mount driver
+    mountProcess->setTelescopeInfo(primaryScopeFL, primaryScopeAperture, guideScopeFL, guideScopeAperture);
 
     if (guideProcess.get() != nullptr)
+    {
         guideProcess->setTelescope(scopeDevice);
+        guideProcess->setTelescopeInfo(primaryScopeFL, primaryScopeAperture, guideScopeFL, guideScopeAperture);
+    }
 
     if (alignProcess.get() != nullptr)
+    {
         alignProcess->setTelescope(scopeDevice);
+        alignProcess->setTelescopeInfo(primaryScopeFL, primaryScopeAperture, guideScopeFL, guideScopeAperture);
+    }
 }
 
 void EkosManager::setCCD(ISD::GDInterface *ccdDevice)
@@ -1112,6 +1091,12 @@ void EkosManager::setFilter(ISD::GDInterface *filterDevice)
     initFocus();
 
     focusProcess->addFilter(filterDevice);
+
+    initAlign();
+
+    alignProcess->addFilter(filterDevice);
+    if (Options::defaultAlignFW().isEmpty() == false)
+        alignProcess->setFilter(Options::defaultAlignFW(), -1);
 }
 
 void EkosManager::setFocuser(ISD::GDInterface *focuserDevice)
@@ -1234,6 +1219,9 @@ void EkosManager::processNewText(ITextVectorProperty *tvp)
 
         if (focusProcess.get() != nullptr)
             focusProcess->checkFilter();
+
+        if (alignProcess.get() != nullptr)
+            alignProcess->checkFilter();
     }
 }
 
@@ -1284,6 +1272,9 @@ void EkosManager::processNewNumber(INumberVectorProperty *nvp)
 
         if (focusProcess.get() != nullptr)
             focusProcess->checkFilter();
+
+        if (alignProcess.get() != nullptr)
+            alignProcess->checkFilter();
     }
 }
 
@@ -1393,6 +1384,9 @@ void EkosManager::processNewProperty(INDI::Property *prop)
 
         if (focusProcess.get() != nullptr)
             focusProcess->checkFilter();
+
+        if (alignProcess.get() != nullptr)
+            alignProcess->checkFilter();
 
         return;
     }
@@ -1523,8 +1517,7 @@ void EkosManager::appendLogText(const QString &text)
     logText.insert(0, i18nc("log entry; %1 is the date, %2 is the text", "%1 %2",
                             QDateTime::currentDateTime().toString("yyyy-MM-ddThh:mm:ss"), text));
 
-    if (Options::verboseLogging())
-        qDebug() << "Ekos: " << text;
+    qCInfo(KSTARS_EKOS) << text;
 
     updateLog();
 }
@@ -1649,6 +1642,11 @@ void EkosManager::initAlign()
         return;
 
     alignProcess.reset(new Ekos::Align());
+
+    double primaryScopeFL=0, primaryScopeAperture=0, guideScopeFL=0, guideScopeAperture=0;
+    getCurrentProfileTelescopeInfo(primaryScopeFL, primaryScopeAperture, guideScopeFL, guideScopeAperture);
+    alignProcess->setTelescopeInfo(primaryScopeFL, primaryScopeAperture, guideScopeFL, guideScopeAperture);
+
     alignProcess->setEnabled(false);
     int index = toolsWidget->addTab(alignProcess.get(), QIcon(":/icons/ekos_align.png"), "");
     toolsWidget->tabBar()->setTabToolTip(index, i18n("Align"));
@@ -1676,8 +1674,8 @@ void EkosManager::initAlign()
     if (focusProcess.get() != nullptr)
     {
         // Filter lock
-        connect(focusProcess.get(), SIGNAL(filterLockUpdated(ISD::GDInterface*,int)), alignProcess.get(),
-                SLOT(setLockedFilter(ISD::GDInterface*,int)), Qt::UniqueConnection);
+        //connect(focusProcess.get(), SIGNAL(filterLockUpdated(ISD::GDInterface*,int)), alignProcess.get(),
+                //SLOT(setLockedFilter(ISD::GDInterface*,int)), Qt::UniqueConnection);
         connect(focusProcess.get(), SIGNAL(newStatus(Ekos::FocusState)), alignProcess.get(), SLOT(setFocusStatus(Ekos::FocusState)),
                 Qt::UniqueConnection);
     }
@@ -1749,8 +1747,8 @@ void EkosManager::initFocus()
     if (alignProcess.get() != nullptr)
     {
         // Filter lock
-        connect(focusProcess.get(), SIGNAL(filterLockUpdated(ISD::GDInterface*,int)), alignProcess.get(),
-                SLOT(setLockedFilter(ISD::GDInterface*,int)), Qt::UniqueConnection);
+        //connect(focusProcess.get(), SIGNAL(filterLockUpdated(ISD::GDInterface*,int)), alignProcess.get(),
+                //SLOT(setLockedFilter(ISD::GDInterface*,int)), Qt::UniqueConnection);
         connect(focusProcess.get(), SIGNAL(newStatus(Ekos::FocusState)), alignProcess.get(), SLOT(setFocusStatus(Ekos::FocusState)),
                 Qt::UniqueConnection);
     }
@@ -1836,7 +1834,14 @@ void EkosManager::initMount()
 void EkosManager::initGuide()
 {
     if (guideProcess.get() == nullptr)
+    {
         guideProcess.reset(new Ekos::Guide());
+
+        double primaryScopeFL=0, primaryScopeAperture=0, guideScopeFL=0, guideScopeAperture=0;
+        getCurrentProfileTelescopeInfo(primaryScopeFL, primaryScopeAperture, guideScopeFL, guideScopeAperture);
+        // Save telescope info in mount driver
+        guideProcess->setTelescopeInfo(primaryScopeFL, primaryScopeAperture, guideScopeFL, guideScopeAperture);
+    }
 
     //if ( (haveGuider || ccdCount > 1 || useGuideHead) && useST4 && toolsWidget->indexOf(guideProcess) == -1)
     if ((findDevices(KSTARS_CCD).isEmpty() == false || useGuideHead) && useST4 &&
@@ -2406,5 +2411,36 @@ void EkosManager::showEkosOptions()
     {
         KConfigDialog *cDialog = KConfigDialog::exists("settings");
         cDialog->setCurrentPage(ekosOptionsWidget);
+    }
+}
+
+void EkosManager::getCurrentProfileTelescopeInfo(double &primaryFocalLength, double &primaryAperture, double &guideFocalLength, double &guideAperture)
+{
+    ProfileInfo *pi = getCurrentProfile();
+    if (pi)
+    {
+        int primaryScopeID=0, guideScopeID=0;
+        primaryScopeID=pi->primaryscope;
+        guideScopeID=pi->guidescope;
+        if (primaryScopeID > 0 || guideScopeID > 0)
+        {
+            // Get all OAL equipment filter list
+            QList<OAL::Scope*> m_scopeList;
+            KStarsData::Instance()->userdb()->GetAllScopes(m_scopeList);
+            foreach(OAL::Scope *oneScope, m_scopeList)
+            {
+                if (oneScope->id().toInt() == primaryScopeID)
+                {
+                    primaryFocalLength = oneScope->focalLength();
+                    primaryAperture = oneScope->aperture();
+                }
+
+                if (oneScope->id().toInt() == guideScopeID)
+                {
+                    guideFocalLength = oneScope->focalLength();
+                    guideAperture = oneScope->aperture();
+                }
+            }
+        }
     }
 }

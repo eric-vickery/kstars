@@ -31,13 +31,15 @@
 
 #include <KNotifications/KNotification>
 
+#include <ekos_capture_debug.h>
+
 #define INVALID_VALUE -1e6
 #define MF_TIMER_TIMEOUT    90000
 #define GD_TIMER_TIMEOUT    60000
 #define MF_RA_DIFF_LIMIT    4
 
 // Current Sequence File Format:
-#define SQ_FORMAT_VERSION 1.9
+#define SQ_FORMAT_VERSION 2.0
 // We accept file formats with version back to:
 #define SQ_COMPAT_VERSION 1.6
 
@@ -76,6 +78,8 @@ Capture::Capture()
     filterOffsetB->setIcon(QIcon::fromTheme("view-filter", QIcon(":/icons/breeze/default/view-filter.svg")));
     connect(filterOffsetB, SIGNAL(clicked()), this, SLOT(showFilterOffsetDialog()));
     filterOffsetB->setAttribute(Qt::WA_LayoutUsesWidgetRect);
+
+    FilterCaptureCombo->addItem("--");
 
     connect(binXIN, SIGNAL(valueChanged(int)), binYIN, SLOT(setValue(int)));
 
@@ -229,9 +233,9 @@ void Capture::addFilter(ISD::GDInterface *newFilter)
 
     filterOffsetB->setEnabled(true);
 
-    checkFilter(0);
+    checkFilter(1);
 
-    FilterCaptureCombo->setCurrentIndex(0);
+    FilterCaptureCombo->setCurrentIndex(1);
 }
 
 void Capture::pause()
@@ -292,7 +296,10 @@ void Capture::start()
     Options::setUseFITSViewerInCapture(useFITSViewerInCapture->isChecked());
 
     if (queueTable->rowCount() == 0)
-        addJob();
+    {
+        if (addJob() == false)
+            return;
+    }
 
     SequenceJob *first_job = nullptr;
 
@@ -401,12 +408,13 @@ void Capture::stop(bool abort)
             emit newStatus(Ekos::CAPTURE_ABORTED);
         }
 
-        // In case
+        // In case of batch job
         if (activeJob->isPreview() == false)
         {
             activeJob->disconnect(this);
             activeJob->reset();
         }
+        // or preview job in calibration stage
         else if (calibrationStage == CAL_CALIBRATION)
         {
             activeJob->disconnect(this);
@@ -414,9 +422,12 @@ void Capture::stop(bool abort)
             activeJob->setPreview(false);
             currentCCD->setUploadMode(rememberUploadMode);
         }
-        else // Delete preview job
+        // or regular preview job
+        else
         {
+            currentCCD->setUploadMode(rememberUploadMode);
             jobs.removeOne(activeJob);
+            // Delete preview job
             delete (activeJob);
             activeJob = nullptr;
         }
@@ -916,7 +927,7 @@ bool Capture::setFilter(QString device, int filterSlot)
 {
     bool deviceFound = false;
 
-    for (int i = 0; i < FilterCaptureCombo->count(); i++)
+    for (int i = 1; i < FilterCaptureCombo->count(); i++)
         if (device == FilterCaptureCombo->itemText(i))
         {
             checkFilter(i);
@@ -942,10 +953,20 @@ void Capture::checkFilter(int filterNum)
             return;
     }
 
+    if (filterNum == 0)
+    {
+        currentFilter = nullptr;
+        filterSlot = nullptr;
+        currentFilterPosition=-1;
+        FilterPosCombo->clear();
+        syncFilterInfo();
+        return;
+    }
+
     QStringList filterAlias = Options::filterAlias();
 
     if (filterNum <= Filters.count())
-        currentFilter = Filters.at(filterNum);
+        currentFilter = Filters.at(filterNum-1);
 
     syncFilterInfo();
 
@@ -986,16 +1007,25 @@ void Capture::checkFilter(int filterNum)
 
 void Capture::syncFilterInfo()
 {
-    if (currentCCD && currentFilter)
+    if (currentCCD)
     {
         ITextVectorProperty *activeDevices = currentCCD->getBaseDevice()->getText("ACTIVE_DEVICES");
         if (activeDevices)
         {
             IText *activeFilter = IUFindText(activeDevices, "ACTIVE_FILTER");
-            if (activeFilter && strcmp(activeFilter->text, currentFilter->getDeviceName()))
+            if (activeFilter)
             {
-                IUSaveText(activeFilter, currentFilter->getDeviceName());
-                currentCCD->getDriverInfo()->getClientManager()->sendNewText(activeDevices);
+                if (currentFilter != nullptr && strcmp(activeFilter->text, currentFilter->getDeviceName()))
+                {
+                    IUSaveText(activeFilter, currentFilter->getDeviceName());
+                    currentCCD->getDriverInfo()->getClientManager()->sendNewText(activeDevices);
+                }
+                // Reset filter name in CCD driver
+                else if (currentFilter == nullptr && strlen(activeFilter->text) > 0)
+                {
+                    IUSaveText(activeFilter, "");
+                    currentCCD->getDriverInfo()->getClientManager()->sendNewText(activeDevices);
+                }
             }
         }
     }
@@ -1101,6 +1131,8 @@ bool Capture::setCaptureComplete()
     if (seqTotalCount <= 0)
     {
         jobs.removeOne(activeJob);
+        // Reset upload mode if it was changed by preview
+        currentCCD->setUploadMode(rememberUploadMode);
         delete (activeJob);
         // Reset active job pointer
         activeJob = nullptr;
@@ -1243,8 +1275,7 @@ bool Capture::resumeSequence()
 
         // check if time for forced refocus
 
-	if (Options::captureLogging())
-	  qDebug() << "Elapsed Time (secs): " << getRefocusEveryNTimerElapsedSec() << " Requested Interval (secs): " << refocusEveryN->value()*60;
+    qCDebug(KSTARS_EKOS_CAPTURE) << "Elapsed Time (secs): " << getRefocusEveryNTimerElapsedSec() << " Requested Interval (secs): " << refocusEveryN->value()*60;
 
         if (refocusEveryNCheck->isEnabled() && refocusEveryNCheck->isChecked() && getRefocusEveryNTimerElapsedSec() >= refocusEveryN->value()*60)
             isRefocus = true;
@@ -1297,12 +1328,12 @@ void Capture::captureOne()
     Options::setUseFITSViewerInCapture(useFITSViewerInCapture->isChecked());
 
     //if (currentCCD->getUploadMode() == ISD::CCD::UPLOAD_LOCAL)
-    if (uploadModeCombo->currentIndex() != 0)
+    /*if (uploadModeCombo->currentIndex() != ISD::CCD::UPLOAD_CLIENT)
     {
         appendLogText(i18n("Cannot take preview image while CCD upload mode is set to local or both. Please change "
                            "upload mode to client and try again."));
         return;
-    }
+    }*/
 
     if (transferFormatCombo->currentIndex() == ISD::CCD::FORMAT_NATIVE && darkSubCheck->isChecked())
     {
@@ -1310,9 +1341,8 @@ void Capture::captureOne()
         return;
     }
 
-    addJob(true);
-
-    prepareJob(jobs.last());
+    if (addJob(true))
+        prepareJob(jobs.last());
 }
 
 void Capture::captureImage()
@@ -1368,14 +1398,16 @@ void Capture::captureImage()
             }
 
             calibrationStage = CAL_CALIBRATION;
-            activeJob->setPreview(true);
             // We need to be in preview mode and in client mode for this to work
-            rememberUploadMode = currentCCD->getUploadMode();
-            if (currentCCD->getUploadMode() != ISD::CCD::UPLOAD_CLIENT)
-            {
-                currentCCD->setUploadMode(ISD::CCD::UPLOAD_CLIENT);
-            }
+            activeJob->setPreview(true);
         }
+    }
+
+    // Temporary change upload mode to client when requesting previews
+    if (activeJob->isPreview())
+    {
+        rememberUploadMode = activeJob->getUploadMode();
+        currentCCD->setUploadMode(ISD::CCD::UPLOAD_CLIENT);
     }
 
     if (currentCCD->getUploadMode() != ISD::CCD::UPLOAD_LOCAL)
@@ -1536,8 +1568,7 @@ void Capture::appendLogText(const QString &text)
     logText.insert(0, i18nc("log entry; %1 is the date, %2 is the text", "%1 %2",
                             QDateTime::currentDateTime().toString("yyyy-MM-ddThh:mm:ss"), text));
 
-    if (Options::captureLogging())
-        qDebug() << "Capture: " << text;
+    qCInfo(KSTARS_EKOS_CAPTURE) << text;
 
     emit newLog();
 }
@@ -1603,8 +1634,7 @@ void Capture::setExposureProgress(ISD::CCDChip *tChip, double value, IPState sta
         //if (isAutoGuiding && Options::useEkosGuider() && currentCCD->getChip(ISD::CCDChip::GUIDE_CCD) == guideChip)
         if (guideState == GUIDE_GUIDING && Options::guiderType() == 0 && suspendGuideOnDownload)
         {
-            if (Options::captureLogging())
-                qDebug() << "Capture: Autoguiding suspended until primary CCD chip completes downloading...";
+            qCDebug(KSTARS_EKOS_CAPTURE) << "Autoguiding suspended until primary CCD chip completes downloading...";
             emit suspendGuiding();
         }
 
@@ -1642,14 +1672,20 @@ void Capture::updateRotatorNumber(INumberVectorProperty *nvp)
     if (!strcmp(nvp->name, "ABS_ROTATOR_POSITION"))
     {
         // Update widget rotator position
+        rotatorSettings->setTicksMinMaxStep(static_cast<int32_t>(nvp->np[0].min), static_cast<int32_t>(nvp->np[0].max), static_cast<int32_t>(nvp->np[0].step));
         rotatorSettings->setCurrentTicks(static_cast<int32_t>(nvp->np[0].value));
 
         if (activeJob && (activeJob->getStatus() == SequenceJob::JOB_ABORTED || activeJob->getStatus() == SequenceJob::JOB_IDLE))
             activeJob->setCurrentRotation(static_cast<int32_t>(nvp->np[0].value));
     }
+    else if (!strcmp(nvp->name, "ABS_ROTATOR_ANGLE"))
+    {
+        // Update widget rotator position
+        rotatorSettings->setCurrentAngle(nvp->np[0].value);
+    }
 }
 
-void Capture::addJob(bool preview)
+bool Capture::addJob(bool preview)
 {
     SequenceJob *job = nullptr;
     QString imagePrefix;
@@ -1657,13 +1693,13 @@ void Capture::addJob(bool preview)
     if (preview == false && darkSubCheck->isChecked())
     {
         KMessageBox::error(this, i18n("Auto dark subtract is not supported in batch mode."));
-        return;
+        return false;
     }
 
     if (uploadModeCombo->currentIndex() != ISD::CCD::UPLOAD_CLIENT && remoteDirIN->text().isEmpty())
     {
         KMessageBox::error(this, i18n("You must set remote directory for Local & Both modes."));
-        return;
+        return false;
     }
 
     if (jobUnderEdit)
@@ -1674,7 +1710,7 @@ void Capture::addJob(bool preview)
     if (job == nullptr)
     {
         qWarning() << "Job is nullptr!" << endl;
-        return;
+        return false;
     }
 
     if (ISOCombo->isEnabled())
@@ -1750,7 +1786,7 @@ void Capture::addJob(bool preview)
 
         // Nothing more to do if preview
         if (preview)
-            return;
+            return true;
     }
 
     QString finalFITSDir = fitsDir->text();
@@ -1854,6 +1890,8 @@ void Capture::addJob(bool preview)
         resetJobEdit();
         appendLogText(i18n("Job #%1 changes applied.", currentRow + 1));
     }
+
+    return true;
 }
 
 void Capture::removeJob()
@@ -2022,7 +2060,7 @@ void Capture::prepareJob(SequenceJob *job)
     }
 
     // If we haven't performed a single autofocus yet, we stop
-    if (!job->isPreview() && Options::enforceRefocusEveryN() && (isAutoFocus == false && firstAutoFocus == true))
+    if (!job->isPreview() && Options::enforceRefocusEveryN() && refocusEveryNCheck->isEnabled() && isAutoFocus == false && firstAutoFocus == true)
     {
         appendLogText(i18n(
             "Manual scheduled focusing is not supported. Run Autofocus process before trying again."));
@@ -2400,7 +2438,7 @@ void Capture::setFocusStatus(FocusState state)
 void Capture::setRotator(ISD::GDInterface *newRotator)
 {
     currentRotator = newRotator;
-    connect(currentRotator, SIGNAL(numberUpdated(INumberVectorProperty*)), this, SLOT(updateRotatorNumber(INumberVectorProperty*)));
+    connect(currentRotator, SIGNAL(numberUpdated(INumberVectorProperty*)), this, SLOT(updateRotatorNumber(INumberVectorProperty*)), Qt::UniqueConnection);
     rotatorB->setEnabled(true);
 
     rotatorSettings->setRotator(newRotator);
@@ -2570,6 +2608,15 @@ bool Capture::loadSequenceQueue(const QString &fileURL)
                     }
                     else
                         meridianCheck->setChecked(false);
+                }
+                else if (!strcmp(tagXMLEle(ep), "CCD"))
+                {
+                    CCDCaptureCombo->setCurrentText(pcdataXMLEle(ep));
+                }
+                else if (!strcmp(tagXMLEle(ep), "FilterWheel"))
+                {
+                    FilterCaptureCombo->setCurrentText(pcdataXMLEle(ep));
+                    checkFilter();
                 }
                 else
                 {
@@ -2873,6 +2920,8 @@ bool Capture::saveSequenceQueue(const QString &path)
     outstream << "<SequenceQueue version='" << SQ_FORMAT_VERSION << "'>" << endl;
     if (observerName.isEmpty() == false)
         outstream << "<Observer>" << observerName << "</Observer>" << endl;
+    outstream << "<CCD>" << CCDCaptureCombo->currentText() << "</CCD>" << endl;
+    outstream << "<FilterWheel>" << FilterCaptureCombo->currentText() << "</FilterWheel>" << endl;
     outstream << "<GuideDeviation enabled='" << (guideDeviationCheck->isChecked() ? "true" : "false") << "'>"
               << guideDeviation->value() << "</GuideDeviation>" << endl;
     outstream << "<Autofocus enabled='" << (autofocusCheck->isChecked() ? "true" : "false") << "'>"
@@ -3669,8 +3718,7 @@ double Capture::setCurrentADU(double value)
     ExpRaw.append(activeJob->getExposure());
     ADURaw.append(value);
 
-    if (Options::captureLogging())
-        qDebug() << "Capture: Current ADU = " << value << " targetADU = " << targetADU
+    qCDebug(KSTARS_EKOS_CAPTURE) << "Capture: Current ADU = " << value << " targetADU = " << targetADU
                  << " Exposure Count: " << ExpRaw.count();
 
     // Most CCDs are quite linear so 1st degree polynomial is quite sufficient
@@ -3682,12 +3730,9 @@ double Capture::setCurrentADU(double value)
             double chisq = 0;
 
             coeff = gsl_polynomial_fit(ADURaw.data(), ExpRaw.data(), ExpRaw.count(), 2, chisq);
-            if (Options::captureLogging())
-            {
-                qDebug() << "Capture: Running polynomial fitting. Found " << coeff.size() << " coefficients.";
-                for (size_t i = 0; i < coeff.size(); i++)
-                    qDebug() << "Capture: Coeff #" << i << "=" << coeff[i];
-            }
+            qCDebug(KSTARS_EKOS_CAPTURE) << "Capture: Running polynomial fitting. Found " << coeff.size() << " coefficients.";
+            for (size_t i = 0; i < coeff.size(); i++)
+                    qCDebug(KSTARS_EKOS_CAPTURE) << "Capture: Coeff #" << i << "=" << coeff[i];
         }
 
         bool looping = false;
@@ -3696,7 +3741,7 @@ double Capture::setCurrentADU(double value)
             int size = ExpRaw.count();
             looping  = (ExpRaw[size - 1] == ExpRaw[size - 2]) && (ExpRaw[size - 2] == ExpRaw[size - 3]);
             if (looping)
-                qDebug() << "Capture: Detected looping in polynomial results. Falling back to llsqr.";
+                qWarning(KSTARS_EKOS_CAPTURE) << "Capture: Detected looping in polynomial results. Falling back to llsqr.";
         }
 
         // If we get invalid data, let's fall back to llsq
@@ -3707,8 +3752,7 @@ double Capture::setCurrentADU(double value)
             double a = 0, b = 0;
             llsq(ExpRaw, ADURaw, a, b);
 
-            if (Options::captureLogging())
-                qDebug() << "Capture: polynomial fitting invalid, faling back to llsq. a=" << a << " b=" << b;
+            qWarning(KSTARS_EKOS_CAPTURE) << "Capture: polynomial fitting invalid, faling back to llsq. a=" << a << " b=" << b;
 
             // If we have valid results, let's calculate next exposure
             if (a != 0)
@@ -3731,8 +3775,7 @@ double Capture::setCurrentADU(double value)
             nextExposure = activeJob->getExposure() * .75;
     }
 
-    if (Options::captureLogging())
-        qDebug() << "Capture: next FLAT exposure is " << nextExposure;
+    qCDebug(KSTARS_EKOS_CAPTURE) << "Capture: next FLAT exposure is " << nextExposure;
 
     return nextExposure;
 }
@@ -4276,10 +4319,7 @@ bool Capture::processPostCaptureCalibrationStage()
             activeJob->setExposure(nextExposure);
             activeJob->setPreview(true);
             rememberUploadMode = activeJob->getUploadMode();
-            if (currentCCD->getUploadMode() != ISD::CCD::UPLOAD_CLIENT)
-            {
-                currentCCD->setUploadMode(ISD::CCD::UPLOAD_CLIENT);
-            }
+            currentCCD->setUploadMode(ISD::CCD::UPLOAD_CLIENT);
 
             startNextExposure();
             return false;

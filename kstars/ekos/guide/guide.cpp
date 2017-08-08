@@ -28,6 +28,8 @@
 
 #include <KConfigDialog>
 
+#include <ekos_guide_debug.h>
+
 #define CAPTURE_TIMEOUT_THRESHOLD 10000
 #define MAX_GUIDE_STARS           10
 
@@ -403,6 +405,21 @@ void Guide::syncCCDInfo()
         if (np)
             ccdPixelSizeY = np->value;
     }
+
+    updateGuideParams();
+}
+
+void Guide::setTelescopeInfo(double primaryFocalLength, double primaryAperture, double guideFocalLength, double guideAperture)
+{
+    if (primaryFocalLength > 0)
+        mountFocalLength = primaryFocalLength;
+    if (primaryAperture > 0)
+        mountAperture = primaryAperture;
+    // If we have guide scope info, always prefer that over primary
+    if (guideFocalLength > 0)
+        mountFocalLength = guideFocalLength;
+    if (guideAperture > 0)
+        mountAperture = guideAperture;
 
     updateGuideParams();
 }
@@ -874,8 +891,7 @@ void Guide::appendLogText(const QString &text)
     logText.insert(0, i18nc("log entry; %1 is the date, %2 is the text", "%1 %2",
                             QDateTime::currentDateTime().toString("yyyy-MM-ddThh:mm:ss"), text));
 
-    if (Options::guideLogging())
-        qDebug() << "Guide: " << text;
+    qCInfo(KSTARS_EKOS_GUIDE) << text;
 
     emit newLog();
 }
