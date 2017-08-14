@@ -1916,6 +1916,10 @@
       </entry>
    </group>
    <group name="Scheduler">
+    <entry name="SchedulerLogging" type="Bool">
+      <whatsthis>Log Ekos Scheduler Module activity.</whatsthis>
+      <default>false</default>
+    </entry>
     <entry name="StopEkosAfterShutdown" type="Bool">
           <label>After shutdown procedure is successfully executed, shutdown INDI and Ekos.</label>
           <default>true</default>
@@ -1973,5 +1977,19 @@
          <label>The port of last used server</label>
          <default>7624</default>
       </entry>
+   </group>
+   <group name="HiPS">
+    <entry name="hips_mem_cache" type="UInt">
+          <label>RAM cache size in MB used to store cached HIPS images.</label>
+          <default>300</default>
+    </entry>
+    <entry name="hips_net_cache" type="UInt">
+          <label>Hard disk cache size in MB used to store cached HIPS images.</label>
+          <default>1000</default>
+    </entry>
+    <entry name="his_source" type="String">
+          <label>HIPS source catalog.</label>
+          <default>DSS Color</default>
+    </entry>
    </group>
 </kcfg>

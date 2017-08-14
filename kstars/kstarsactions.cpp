@@ -57,6 +57,7 @@
 #include "tools/scriptbuilder.h"
 #include "tools/skycalendar.h"
 #include "tools/wutdialog.h"
+#include "tools/polarishourangle.h"
 #include "tools/whatsinteresting/wiequipsettings.h"
 #include "tools/whatsinteresting/wilpsettings.h"
 #include "tools/whatsinteresting/wiview.h"
@@ -636,7 +637,7 @@ void KStars::slotINDIPanel()
         }
     }
 #endif
-    GUIManager::Instance()->updateStatus();
+    GUIManager::Instance()->updateStatus(true);
 #endif
 }
 
@@ -707,9 +708,16 @@ void KStars::slotEkos()
     }
 #endif
 
-    ekosManager()->raise();
-    ekosManager()->activateWindow();
-    ekosManager()->showNormal();
+    if (ekosManager()->isVisible() && ekosManager()->isActiveWindow())
+    {
+        ekosManager()->hide();
+    }
+    else
+    {
+        ekosManager()->raise();
+        ekosManager()->activateWindow();
+        ekosManager()->showNormal();
+    }
 
 #endif
 #endif
@@ -767,6 +775,9 @@ void KStars::slotViewOps()
 
     //KConfigDialog didn't find an instance of this dialog, so lets create it :
     KConfigDialog *dialog = new KConfigDialog(this, "settings", Options::self());
+    // For some reason the dialog does not resize to contents
+    // so we set initial 'resonable' size here. Any better way to do this?
+    dialog->resize(800,600);
 #ifdef Q_OS_OSX
     dialog->setWindowFlags(Qt::Tool | Qt::WindowStaysOnTopHint);
 #endif
@@ -1549,6 +1560,12 @@ void KStars::slotExecute()
 {
     KStarsData::Instance()->executeSession()->init();
     KStarsData::Instance()->executeSession()->show();
+}
+
+void KStars::slotPolarisHourAngle()
+{
+    QPointer<PolarisHourAngle> pHourAngle = new PolarisHourAngle(this);
+    pHourAngle->exec();
 }
 
 //Help Menu

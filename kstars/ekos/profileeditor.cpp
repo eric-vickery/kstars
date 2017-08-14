@@ -349,10 +349,16 @@ void ProfileEditor::setPi(ProfileInfo *value)
     }
 
     ui->guideTypeCombo->setCurrentIndex(pi->guidertype);
-    if (pi->guidertype != Ekos::Guide::GUIDE_INTERNAL)
+    updateGuiderSelection(ui->guideTypeCombo->currentIndex());
+    if (pi->guidertype == Ekos::Guide::GUIDE_PHD2)
     {
-        ui->externalGuideHost->setText(pi->guiderhost);
-        ui->externalGuidePort->setText(QString::number(pi->guiderport));
+        Options::setPHD2Host(pi->guiderhost);
+        Options::setPHD2Port(pi->guiderport);
+    }
+    else if (pi->guidertype == Ekos::Guide::GUIDE_LINGUIDER)
+    {
+        Options::setLinGuiderHost(pi->guiderhost);
+        Options::setLinGuiderPort(pi->guiderport);
     }
 
     QMapIterator<QString, QString> i(pi->drivers);
@@ -759,11 +765,7 @@ void ProfileEditor::setConnectionOptionsEnabled(bool enable)
     ui->guidingTypeLabel->setEnabled(enable);
     ui->guideTypeCombo->setEnabled(enable);
 
-    bool isInternalGuider = (ui->guideTypeCombo->currentIndex() == 0);
-    ui->externalGuideHostLabel->setEnabled(isInternalGuider);
-    ui->externalGuideHost->setEnabled(isInternalGuider);
-    ui->externalGuidePort->setEnabled(isInternalGuider);
-    ui->externalGuidePortLabel->setEnabled(isInternalGuider);
+    updateGuiderSelection(ui->guideTypeCombo->currentIndex());
 
     if (enable == false)
         ui->mountCombo->setFocus();
