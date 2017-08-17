@@ -13,6 +13,9 @@
 
 #include "hipscomponent.h"
 
+#include "skypainter.h"
+#include "skymap.h"
+
 HIPSComponent::HIPSComponent(SkyComposite *parent) : SkyComponent(parent)
 {
 }
@@ -23,5 +26,6 @@ HIPSComponent::~HIPSComponent()
 
 void HIPSComponent::draw(SkyPainter *skyp)
 {
-    Q_UNUSED(skyp)
+    if (SkyMap::IsSlewing() == false)
+        skyp->drawHips();
 }

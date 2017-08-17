@@ -19,6 +19,8 @@
 
 #include "skyqpainter.h"
 
+#include <QPointer>
+
 #include "kstarsdata.h"
 #include "Options.h"
 #include "skymap.h"
@@ -37,6 +39,7 @@
 #include "skyobjects/kssun.h"
 #include "skyobjects/satellite.h"
 #include "skyobjects/supernova.h"
+#include "hips/hipsrenderer.h"
 
 namespace
 {
@@ -112,6 +115,7 @@ SkyQPainter::SkyQPainter(QPaintDevice *pd) : SkyPainter(), QPainter()
     Q_ASSERT(pd);
     m_pd          = pd;
     m_size        = QSize(pd->width(), pd->height());
+    m_hipsRender  = new HIPSRenderer();
 }
 
 SkyQPainter::SkyQPainter(QPaintDevice *pd, const QSize &size) : SkyPainter(), QPainter()
@@ -119,6 +123,7 @@ SkyQPainter::SkyQPainter(QPaintDevice *pd, const QSize &size) : SkyPainter(), QP
     Q_ASSERT(pd);
     m_pd          = pd;
     m_size        = size;
+    m_hipsRender  = new HIPSRenderer();
 }
 
 SkyQPainter::SkyQPainter(QWidget *widget, QPaintDevice *pd) : SkyPainter(), QPainter()
@@ -127,10 +132,12 @@ SkyQPainter::SkyQPainter(QWidget *widget, QPaintDevice *pd) : SkyPainter(), QPai
     // Set paint device pointer to pd or to the widget if pd = 0
     m_pd          = (pd ? pd : widget);
     m_size        = widget->size();
+    m_hipsRender  = new HIPSRenderer();
 }
 
 SkyQPainter::~SkyQPainter()
 {
+    delete (m_hipsRender);
 }
 
 void SkyQPainter::begin()
@@ -612,6 +619,19 @@ bool SkyQPainter::drawConstellationArtImage(ConstellationsArt *obj)
     setRenderHint(QPainter::SmoothPixmapTransform, false);
     restore();
     return true;
+}
+
+bool SkyQPainter::drawHips()
+{
+    int w = viewport().width();
+    int h = viewport().height();
+    QImage *hipsImage = new QImage(w, h, QImage::Format_ARGB32_Premultiplied);
+    bool rendered = m_hipsRender->render(w, h, hipsImage, m_proj);
+    if (rendered)
+        drawImage(viewport(), *hipsImage);
+
+    delete (hipsImage);
+    return rendered;
 }
 
 bool SkyQPainter::drawDeepSkyObject(DeepSkyObject *obj, bool drawImage)
