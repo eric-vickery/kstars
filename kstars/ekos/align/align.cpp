@@ -2388,7 +2388,7 @@ bool Align::captureAndSolve()
     connect(currentCCD, SIGNAL(newExposureValue(ISD::CCDChip*,double,IPState)), this,
             SLOT(checkCCDExposureProgress(ISD::CCDChip*,double,IPState)));
 
-    // In case of remote solver, we set mode to UPLOAD_BOTH
+    // In case of remote solver, check if we need to update active CCD
     if (solverTypeGroup->checkedId() == SOLVER_REMOTE && remoteParser.get() != nullptr)
     {
         // Update ACTIVE_CCD of the remote astrometry driver so it listens to BLOB emitted by the CCD
@@ -4431,6 +4431,7 @@ void Align::restartPAHProcess()
     alignView->setCorrectionParams(correctionVector);
     alignView->setCorrectionOffset(correctionOffset);
     alignView->setRACircle(QVector3D());
+    alignView->setRefreshEnabled(false);
 
     disconnect(alignView, SIGNAL(trackingStarSelected(int, int)), this, SLOT(setPAHCorrectionOffset(int, int)));
 }
@@ -4572,6 +4573,8 @@ void Align::startPAHRefreshProcess()
     // Hide EQ Grids if shown
     if (alignView->isEQGridShown())
         alignView->toggleEQGrid();
+
+    alignView->setRefreshEnabled(true);
 
     Options::setAstrometrySolverWCS(false);
     Options::setAutoWCS(false);
