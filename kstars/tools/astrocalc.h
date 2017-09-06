@@ -40,7 +40,7 @@ class AstroCalc : public QDialog
     explicit AstroCalc(QWidget *parent = nullptr);
 
     /** @return suggested size of calculator window. */
-    QSize sizeHint() const Q_DECL_OVERRIDE;
+    QSize sizeHint() const override;
   public slots:
      // Q: Why is this public when we don't have access to navigationPanel anyway?
      // Also doesn't seem to be used from outside -- asimha
@@ -62,7 +62,7 @@ class AstroCalc : public QDialog
          * @param acalc  pointer to class.
          * @param f      function which construct widget.
          */
-        WidgetThunk(AstroCalc *acalc, const WidgetConstructor& f) : widget(0), calc(acalc), func(f) { }
+        WidgetThunk(AstroCalc *acalc, const WidgetConstructor& f) : widget(nullptr), calc(acalc), func(f) { }
         /**
          * Request widget.
          * @return newly created widget or cached value.

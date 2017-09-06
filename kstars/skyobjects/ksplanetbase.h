@@ -71,7 +71,7 @@ class KSPlanetBase : public TrailObject
                           const QColor &c = Qt::white, double pSize = 0);
 
     /** Destructor (empty) */
-    virtual ~KSPlanetBase() {}
+    ~KSPlanetBase() override {}
 
     void init(const QString &s, const QString &image_file, const QColor &c, double pSize);
 
@@ -166,8 +166,8 @@ class KSPlanetBase : public TrailObject
      * @param lat pointer to the geographic latitude; if nullptr, we skip localizeCoords()
      * @param LST pointer to the local sidereal time; if nullptr, we skip localizeCoords()
      */
-    void updateCoords(const KSNumbers *num, bool includePlanets = true, const CachingDms *lat = 0,
-                      const CachingDms *LST = 0, bool forceRecompute = false) Q_DECL_OVERRIDE;
+    void updateCoords(const KSNumbers *num, bool includePlanets = true, const CachingDms *lat = nullptr,
+                      const CachingDms *LST = nullptr, bool forceRecompute = false) override;
 
     /**
      * @short Find position, including correction for Figure-of-the-Earth.
@@ -176,11 +176,11 @@ class KSPlanetBase : public TrailObject
      * @param LST pointer to the local sidereal time; if nullptr, we skip localizeCoords()
      * @param Earth pointer to the Earth (not used for the Moon)
      */
-    void findPosition(const KSNumbers *num, const CachingDms *lat = 0, const CachingDms *LST = 0,
-                      const KSPlanetBase *Earth = 0);
+    void findPosition(const KSNumbers *num, const CachingDms *lat = nullptr, const CachingDms *LST = nullptr,
+                      const KSPlanetBase *Earth = nullptr);
 
     /** @return the Planet's position angle. */
-    double pa() const Q_DECL_OVERRIDE { return PositionAngle; }
+    double pa() const override { return PositionAngle; }
 
     /**
      * @short Set the Planet's position angle.
@@ -217,7 +217,7 @@ class KSPlanetBase : public TrailObject
     bool isMajorPlanet() const;
 
     /** @return the pixel distance for offseting the object's name label */
-    double labelOffset() const Q_DECL_OVERRIDE;
+    double labelOffset() const override;
 
   protected:
     /** Big object. Planet, Moon, Sun. */

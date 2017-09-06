@@ -31,7 +31,7 @@ class AddLinkDialogUI : public QFrame, public Ui::AddLinkDialog
 {
     Q_OBJECT
   public:
-    explicit AddLinkDialogUI(QWidget *parent = 0);
+    explicit AddLinkDialogUI(QWidget *parent = nullptr);
 };
 
 /**
@@ -47,12 +47,12 @@ class AddLinkDialog : public QDialog
     /**
           *Constructor.
         	*/
-    explicit AddLinkDialog(QWidget *parent = 0, const QString &oname = i18n("object"));
+    explicit AddLinkDialog(QWidget *parent = nullptr, const QString &oname = i18n("object"));
 
     /**
           *Destructor (empty)
         	*/
-    ~AddLinkDialog() {}
+    ~AddLinkDialog() override {}
 
     /**
           *@return QString of the entered URL

@@ -47,10 +47,11 @@
 #include "ksnumbers.h"
 #include "version.h"
 #include "Options.h"
+#include "kstars_debug.h"
 
 #ifndef KSTARS_LITE
 static const char description[] = I18N_NOOP("Desktop Planetarium");
-static const char notice[] = I18N_NOOP("Some images in KStars are for non-commercial use only.  See README.images.");
+static const char notice[] = I18N_NOOP("Some images in KStars are for non-commercial use only. See README.images.");
 #endif
 
 int main(int argc, char *argv[])
@@ -148,7 +149,7 @@ int main(int argc, char *argv[])
 
     if (parser.isSet("dump"))
     {
-        qDebug() << "Dumping sky image";
+        qCDebug(KSTARS) << "Dumping sky image";
 
         //parse filename and image format
         const char *format = "PNG";
@@ -176,7 +177,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            qWarning() << i18n("Could not parse image format of %1; assuming PNG.", fname);
+            qCWarning(KSTARS) << i18n("Could not parse image format of %1; assuming PNG.", fname);
         }
 
         //parse width and height
@@ -187,8 +188,7 @@ int main(int argc, char *argv[])
             h = parser.value("height").toInt(&ok);
         if (!ok)
         {
-            qWarning() << "Unable to parse arguments: ";
-            qWarning() << "Width: " << parser.value("width") << "  Height: " << parser.value("height") << endl;
+            qCWarning(KSTARS) << "Unable to parse arguments Width: " << parser.value("width") << "  Height: " << parser.value("height");
             return 1;
         }
         KStarsData *dat = KStarsData::Create();
@@ -228,7 +228,7 @@ int main(int argc, char *argv[])
 
             if (!kdt.isValid())
             {
-                qWarning() << i18n("Using CPU date/time instead.");
+                qCWarning(KSTARS) << i18n("Supplied date string is invalid: %1. Using CPU date/time instead.", datestring);
 
                 kdt = KStarsDateTime::currentDateTimeUtc();
             }
@@ -262,7 +262,7 @@ int main(int argc, char *argv[])
             }
             else
             {
-                qWarning() << i18n("Could not execute script.");
+                qCWarning(KSTARS) << i18n("Could not execute script.");
             }
         }
 
@@ -272,9 +272,9 @@ int main(int argc, char *argv[])
         qApp->processEvents();
 
         if (!sky.save(fname, format))
-            qWarning() << "Unable to save image: " << fname;
+            qCWarning(KSTARS) << "Unable to save image: " << fname;
         else
-            qDebug() << "Saved to file: %1" << fname;
+            qCDebug(KSTARS) << "Saved to file: %1" << fname;
 
         delete map;
         delete dat;

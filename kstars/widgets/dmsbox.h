@@ -56,7 +56,7 @@ class dmsBox : public QLineEdit
     explicit dmsBox(QWidget *parent, bool deg = true);
 
     /**Destructor (empty)*/
-    ~dmsBox();
+    ~dmsBox() override;
 
     /**Display an angle using Hours/Min/Sec.
         	*@p t the dms object which is to be displayed
@@ -113,7 +113,7 @@ class dmsBox : public QLineEdit
         	*@param ok set to true if a dms object was succedssfully created.
         	*@return a dms object constructed from the fields of the dmsbox
         	*/
-    dms createDms(bool deg = true, bool *ok = 0);
+    dms createDms(bool deg = true, bool *ok = nullptr);
 
     /** @return a boolean indicating if object contains degrees or hours
         	*/
@@ -132,8 +132,8 @@ class dmsBox : public QLineEdit
     inline bool isEmpty() { return EmptyFlag; }
 
   protected:
-    void focusInEvent(QFocusEvent *e) Q_DECL_OVERRIDE;
-    void focusOutEvent(QFocusEvent *e) Q_DECL_OVERRIDE;
+    void focusInEvent(QFocusEvent *e) override;
+    void focusOutEvent(QFocusEvent *e) override;
 
   private slots:
     void slotTextChanged(const QString &t);

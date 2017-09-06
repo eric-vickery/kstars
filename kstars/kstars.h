@@ -130,7 +130,7 @@ class KStars : public KXmlGuiWindow
     inline static KStars *Instance() { return pinstance; }
 
     /** Destructor. */
-    virtual ~KStars();
+    ~KStars() override;
 
     /** Syncs config file. Deletes objects. */
     void releaseResources();
@@ -586,11 +586,23 @@ class KStars : public KXmlGuiWindow
     /** action slot: Track with the telescope (INDI) */
     void slotINDITelescopeTrack();
 
-    /** action slot: Slew with the telescope (INDI) */
-    void slotINDITelescopeSlew();
+    /**
+     * Action slot: Slew with the telescope (INDI)
+     *
+     * @param focused_object Slew to the focused object or the mouse pointer if false.
+     *
+     */
+    void slotINDITelescopeSlew(bool focused_object = true);
+    void slotINDITelescopeSlewMousePointer();
 
-    /** action slot: Sync the telescope (INDI) */
-    void slotINDITelescopeSync();
+    /**
+     * Action slot: Sync the telescope (INDI)
+     *
+     * @param focused_object Sync the position of the focused object or the mouse pointer if false.
+     *
+     */
+    void slotINDITelescopeSync(bool focused_object = true);
+    void slotINDITelescopeSyncMousePointer();
 
     /** action slot: Abort any telescope motion (INDI) */
     void slotINDITelescopeAbort();
@@ -714,7 +726,7 @@ class KStars : public KXmlGuiWindow
     /** Build the KStars main window */
     void buildGUI();
 
-    virtual void closeEvent(QCloseEvent *event);
+    void closeEvent(QCloseEvent *event) override;
 
   public:
     /** Check if the KStars main window is shown */

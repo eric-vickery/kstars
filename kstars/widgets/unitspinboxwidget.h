@@ -32,8 +32,8 @@ class UnitSpinBoxWidget : public QWidget
     Q_OBJECT
 
   public:
-    explicit UnitSpinBoxWidget(QWidget *parent = 0);
-    ~UnitSpinBoxWidget();
+    explicit UnitSpinBoxWidget(QWidget *parent = nullptr);
+    ~UnitSpinBoxWidget() override;
 
     /**
          * @brief addUnit Adds a item to the combo box

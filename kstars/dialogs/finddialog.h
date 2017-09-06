@@ -33,7 +33,7 @@ class FindDialogUI : public QFrame, public Ui::FindDialog
 {
     Q_OBJECT
   public:
-    explicit FindDialogUI(QWidget *parent = 0);
+    explicit FindDialogUI(QWidget *parent = nullptr);
 };
 
 /** @class FindDialog
@@ -52,10 +52,10 @@ class FindDialog : public QDialog
     /**Constructor. Creates all widgets and packs them in QLayouts.  Connects
          * Signals and Slots.  Runs initObjectList().
          */
-    explicit FindDialog(QWidget *parent = 0);
+    explicit FindDialog(QWidget *parent = nullptr);
 
     /** Destructor */
-    virtual ~FindDialog();
+    ~FindDialog() override;
 
     /**
          * @return the target object (need not be the same as currently selected object!)
@@ -101,7 +101,7 @@ class FindDialog : public QDialog
          * the window with no selection, using reject().
          * @param e The QKeyEvent pointer
          */
-    void keyPressEvent(QKeyEvent *e) Q_DECL_OVERRIDE;
+    void keyPressEvent(QKeyEvent *e) override;
 
     /** @return the currently-selected item from the listbox of named objects */
     SkyObject *selectedObject() const;
@@ -115,7 +115,7 @@ class FindDialog : public QDialog
     /**
          * @short Finishes the processing towards closing the dialog initiated by slotOk() or slotResolve()
          */
-    void finishProcessing(SkyObject *selObj = 0, bool resolve = true);
+    void finishProcessing(SkyObject *selObj = nullptr, bool resolve = true);
 
     /** @short pre-filter the list of objects according to the
          * selected object type.

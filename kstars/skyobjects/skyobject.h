@@ -87,7 +87,7 @@ class SkyObject : public SkyPoint
               const QString &lname = QString());
 
     /** Destructor (empty) */
-    virtual ~SkyObject();
+    ~SkyObject() override;
 
     /**
      * @short Create copy of object.
@@ -295,7 +295,7 @@ class SkyObject : public SkyPoint
      * @param geo pointer to geographic location (used for solar system only)
      * @note Does not update the horizontal coordinates. Call EquatorialToHorizontal for that.
      */
-    SkyPoint recomputeCoords(const KStarsDateTime &dt, const GeoLocation *geo = 0) const;
+    SkyPoint recomputeCoords(const KStarsDateTime &dt, const GeoLocation *geo = nullptr) const;
 
     /**
      * @short Like recomputeCoords, but also calls EquatorialToHorizontal before returning

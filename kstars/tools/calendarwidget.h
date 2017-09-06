@@ -28,17 +28,17 @@ class CalendarWidget : public KPlotWidget
 {
     Q_OBJECT
   public:
-    explicit CalendarWidget(QWidget *parent = 0);
+    explicit CalendarWidget(QWidget *parent = nullptr);
     void setHorizon();
     inline float getRiseTime(int i) { return riseTimeList.at(i); }
     inline float getSetTime(int i) { return setTimeList.at(i); }
 
   protected:
-    void paintEvent(QPaintEvent *e) Q_DECL_OVERRIDE;
+    void paintEvent(QPaintEvent *e) override;
 
   private:
     void drawHorizon(QPainter *p);
-    void drawAxes(QPainter *p) Q_DECL_OVERRIDE;
+    void drawAxes(QPainter *p) override;
 
     QList<QDate> dateList;
     QList<float> riseTimeList;

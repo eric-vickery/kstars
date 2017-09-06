@@ -68,7 +68,7 @@ Guide::Guide() : QWidget()
     guideWidget->setLayout(vlayout);
     connect(guideView, SIGNAL(trackingStarSelected(int,int)), this, SLOT(setTrackingStar(int,int)));
 
-    ccdPixelSizeX = ccdPixelSizeY = mountAperture = mountFocalLength = pixScaleX = pixScaleY = -1;
+    ccdPixelSizeX = ccdPixelSizeY = aperture = focal_length = pixScaleX = pixScaleY = -1;
     guideDeviationRA = guideDeviationDEC = 0;
 
     useGuideHead = false;
@@ -105,15 +105,44 @@ Guide::Guide() : QWidget()
     // Guider CCD Selection
     //connect(guiderCombo, SIGNAL(activated(QString)), this, SLOT(setDefaultCCD(QString)));
     connect(guiderCombo, static_cast<void (QComboBox::*)(const QString &)>(&QComboBox::activated), this,
-            [&](const QString &ccd) { Options::setDefaultGuideCCD(ccd); });
+            [&](const QString &ccd)
+    {
+        if (guiderType == GUIDE_INTERNAL)
+            Options::setDefaultGuideCCD(ccd);
+        else if (ccd.isEmpty() == false)
+        {
+            QString ccdName = ccd;
+            ccdName = ccdName.remove(" Guider");
+            setBLOBEnabled(Options::guideRemoteImagesEnabled(), ccdName);
+            guiderCombo->blockSignals(true);
+            guiderCombo->setCurrentIndex(-1);
+            guiderCombo->blockSignals(false);
+        }
+
+    });
     connect(guiderCombo, static_cast<void(QComboBox::*)(int)>(&QComboBox::currentIndexChanged), this,
         [&](int index)
     {
-        starCenter = QVector3D();
-        checkCCD(index);
+        if (guiderType == GUIDE_INTERNAL)
+        {
+            starCenter = QVector3D();
+            checkCCD(index);
+        }
+        else if (index >= 0)
+        {
+            // Disable or enable selected CCD based on options
+            QString ccdName = guiderCombo->currentText().remove(" Guider");
+            setBLOBEnabled(Options::guideRemoteImagesEnabled(), ccdName);
+            guiderCombo->blockSignals(true);
+            guiderCombo->setCurrentIndex(-1);
+            guiderCombo->blockSignals(false);
+        }
+
     }
     );
 
+    FOVScopeCombo->setCurrentIndex(Options::guideScopeType());
+    connect(FOVScopeCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(updateTelescopeType(int)));
 
     // Dark Frame Check
     connect(darkFrameCheck, SIGNAL(toggled(bool)), this, SLOT(setDarkFrameEnabled(bool)));
@@ -421,14 +450,14 @@ void Guide::syncCCDInfo()
 void Guide::setTelescopeInfo(double primaryFocalLength, double primaryAperture, double guideFocalLength, double guideAperture)
 {
     if (primaryFocalLength > 0)
-        mountFocalLength = primaryFocalLength;
+        focal_length = primaryFocalLength;
     if (primaryAperture > 0)
-        mountAperture = primaryAperture;
+        aperture = primaryAperture;
     // If we have guide scope info, always prefer that over primary
     if (guideFocalLength > 0)
-        mountFocalLength = guideFocalLength;
+        focal_length = guideFocalLength;
     if (guideAperture > 0)
-        mountAperture = guideAperture;
+        aperture = guideAperture;
 
     updateGuideParams();
 }
@@ -442,26 +471,34 @@ void Guide::syncTelescopeInfo()
 
     if (nvp)
     {
-        INumber *np = IUFindNumber(nvp, "GUIDER_APERTURE");
+        INumber *np = IUFindNumber(nvp, "TELESCOPE_APERTURE");
 
-        if (np && np->value != 0)
-            mountAperture = np->value;
-        else
-        {
-            np = IUFindNumber(nvp, "TELESCOPE_APERTURE");
-            if (np)
-                mountAperture = np->value;
-        }
+        if (np && np->value > 0)
+            primaryAperture = np->value;
+
+        np = IUFindNumber(nvp, "GUIDER_APERTURE");
+        if (np && np->value > 0)
+            guideAperture = np->value;
+
+        aperture = primaryAperture;
+
+        //if (currentCCD && currentCCD->getTelescopeType() == ISD::CCD::TELESCOPE_GUIDE)
+        if (FOVScopeCombo->currentIndex() == ISD::CCD::TELESCOPE_GUIDE)
+            aperture = guideAperture;
+
+        np = IUFindNumber(nvp, "TELESCOPE_FOCAL_LENGTH");
+        if (np && np->value > 0)
+            primaryFL = np->value;
 
         np = IUFindNumber(nvp, "GUIDER_FOCAL_LENGTH");
-        if (np && np->value != 0)
-            mountFocalLength = np->value;
-        else
-        {
-            np = IUFindNumber(nvp, "TELESCOPE_FOCAL_LENGTH");
-            if (np)
-                mountFocalLength = np->value;
-        }
+        if (np && np->value > 0)
+            guideFL = np->value;
+
+        focal_length = primaryFL;
+
+        //if (currentCCD && currentCCD->getTelescopeType() == ISD::CCD::TELESCOPE_GUIDE)
+        if (FOVScopeCombo->currentIndex() == ISD::CCD::TELESCOPE_GUIDE)
+            focal_length = guideFL;
     }
 
     updateGuideParams();
@@ -524,9 +561,24 @@ void Guide::updateGuideParams()
         }
     }
 
-    if (ccdPixelSizeX != -1 && ccdPixelSizeY != -1 && mountAperture != -1 && mountFocalLength != -1)
+    if (ccdPixelSizeX != -1 && ccdPixelSizeY != -1 && aperture != -1 && focal_length != -1)
     {
-        guider->setGuiderParams(ccdPixelSizeX, ccdPixelSizeY, mountAperture, mountFocalLength);
+        FOVScopeCombo->setItemData(
+                    ISD::CCD::TELESCOPE_PRIMARY,
+                    i18nc("F-Number, Focal Length, Aperture",
+                          "<nobr>F<b>%1</b> Focal Length: <b>%2</b> mm Aperture: <b>%3</b> mm<sup>2</sup></nobr>",
+                          QString::number(primaryFL / primaryAperture, 'f', 1), QString::number(primaryFL, 'f', 2),
+                          QString::number(primaryAperture, 'f', 2)),
+                    Qt::ToolTipRole);
+        FOVScopeCombo->setItemData(
+                    ISD::CCD::TELESCOPE_GUIDE,
+                    i18nc("F-Number, Focal Length, Aperture",
+                          "<nobr>F<b>%1</b> Focal Length: <b>%2</b> mm Aperture: <b>%3</b> mm<sup>2</sup></nobr>",
+                          QString::number(guideFL / guideAperture, 'f', 1), QString::number(guideFL, 'f', 2),
+                          QString::number(guideAperture, 'f', 2)),
+                    Qt::ToolTipRole);
+
+        guider->setGuiderParams(ccdPixelSizeX, ccdPixelSizeY, aperture, focal_length);
         emit guideChipUpdated(targetChip);
 
         int x, y, w, h;
@@ -535,9 +587,9 @@ void Guide::updateGuideParams()
             guider->setFrameParams(x, y, w, h, subBinX, subBinY);
         }
 
-        l_Focal->setText(QString::number(mountFocalLength, 'f', 1));
-        l_Aperture->setText(QString::number(mountAperture, 'f', 1));
-        if (mountAperture == 0)
+        l_Focal->setText(QString::number(focal_length, 'f', 1));
+        l_Aperture->setText(QString::number(aperture, 'f', 1));
+        if (aperture == 0)
         {
             l_FbyD->setText("0");
             // Pixel scale in arcsec/pixel
@@ -546,10 +598,10 @@ void Guide::updateGuideParams()
         }
         else
         {
-            l_FbyD->setText(QString::number(mountFocalLength / mountAperture, 'f', 1));
+            l_FbyD->setText(QString::number(focal_length / aperture, 'f', 1));
             // Pixel scale in arcsec/pixel
-            pixScaleX = 206264.8062470963552 * ccdPixelSizeX / 1000.0 / mountFocalLength;
-            pixScaleY = 206264.8062470963552 * ccdPixelSizeY / 1000.0 / mountFocalLength;
+            pixScaleX = 206264.8062470963552 * ccdPixelSizeX / 1000.0 / focal_length;
+            pixScaleY = 206264.8062470963552 * ccdPixelSizeY / 1000.0 / focal_length;
         }
 
 
@@ -631,9 +683,13 @@ bool Guide::captureOneFrame()
         return false;
     }
 
+    // If CCD Telescope Type does not match desired scope type, change it
+    if (currentCCD->getTelescopeType() != FOVScopeCombo->currentIndex())
+        currentCCD->setTelescopeType(static_cast<ISD::CCD::TelescopeType>(FOVScopeCombo->currentIndex()));
+
     double seqExpose = exposureIN->value();
 
-    ISD::CCDChip *targetChip = currentCCD->getChip(useGuideHead ? ISD::CCDChip::GUIDE_CCD : ISD::CCDChip::PRIMARY_CCD);
+    ISD::CCDChip *targetChip = currentCCD->getChip(useGuideHead ? ISD::CCDChip::GUIDE_CCD : ISD::CCDChip::PRIMARY_CCD);        
 
     targetChip->setCaptureMode(FITS_GUIDE);
     targetChip->setFrameType(FRAME_LIGHT);
@@ -875,11 +931,13 @@ void Guide::setCaptureComplete()
             guider->guide();
             break;
 
-        case GUIDE_DITHERING:        
-            guider->dither(Options::ditherPixels());
+        case GUIDE_DITHERING:
+                guider->dither(Options::ditherPixels());
             break;
 
         case GUIDE_DITHERING_SETTLE:
+            if (Options::ditherNoGuiding())
+                return;
             capture();
             break;
 
@@ -923,7 +981,7 @@ bool Guide::sendPulse(GuideDirection ra_dir, int ra_msecs, GuideDirection dec_di
     if (GuideDriver == nullptr || (ra_dir == NO_DIR && dec_dir == NO_DIR))
         return false;
 
-    if (state == GUIDE_CALIBRATING)
+    if (state == GUIDE_CALIBRATING && Options::ditherNoGuiding() == false)
         pulseTimer.start((ra_msecs > dec_msecs ? ra_msecs : dec_msecs) + 100);
 
     return GuideDriver->doPulse(ra_dir, ra_msecs, dec_dir, dec_msecs);
@@ -934,7 +992,7 @@ bool Guide::sendPulse(GuideDirection dir, int msecs)
     if (GuideDriver == nullptr || dir == NO_DIR)
         return false;
 
-    if (state == GUIDE_CALIBRATING)
+    if (state == GUIDE_CALIBRATING && Options::ditherNoGuiding() == false)
         pulseTimer.start(msecs + 100);
 
     return GuideDriver->doPulse(dir, msecs);
@@ -1080,6 +1138,12 @@ bool Guide::guide()
 
 bool Guide::dither()
 {
+    if (Options::ditherNoGuiding())
+    {
+        ditherDirectly();
+        return true;
+    }
+
     if (state == GUIDE_DITHERING || state == GUIDE_DITHERING_SETTLE)
         return true;
 
@@ -1350,11 +1414,14 @@ void Guide::setStatus(Ekos::GuideState newState)
 
         case GUIDE_DITHERING_SUCCESS:
             appendLogText(i18n("Dithering completed successfully."));
-            // Go back to guiding state immediately
-            setStatus(GUIDE_GUIDING);
-            // Only capture again if we are using internal guider
-            if (guiderType == GUIDE_INTERNAL)
-                capture();
+            // Go back to guiding state immediately if using regular guider
+            if (Options::ditherNoGuiding() == false)
+            {
+                setStatus(GUIDE_GUIDING);
+                // Only capture again if we are using internal guider
+                if (guiderType == GUIDE_INTERNAL)
+                    capture();
+            }
             break;
         default:
             break;
@@ -1530,6 +1597,8 @@ bool Guide::setGuiderType(int type)
             infoGroup->setEnabled(true);
             driftGraphicsGroup->setEnabled(true);
 
+            guiderCombo->setToolTip(i18n("Select guide camera."));
+
             updateGuideParams();
         }
         break;
@@ -1552,12 +1621,19 @@ bool Guide::setGuiderType(int type)
             infoGroup->setEnabled(false);
             driftGraphicsGroup->setEnabled(false);
 
-            guiderCombo->setEnabled(false);
             ST4Combo->setEnabled(false);
             exposureIN->setEnabled(false);
             binningCombo->setEnabled(false);
             boxSizeCombo->setEnabled(false);
             filterCombo->setEnabled(false);
+
+            if (Options::guideRemoteImagesEnabled() == false)
+            {
+                guiderCombo->setCurrentIndex(-1);
+                guiderCombo->setToolTip(i18n("Select a camera to disable remote streaming."));
+            }
+            else
+                guiderCombo->setEnabled(false);
             break;
 
         case GUIDE_LINGUIDER:
@@ -1578,12 +1654,19 @@ bool Guide::setGuiderType(int type)
             infoGroup->setEnabled(false);
             driftGraphicsGroup->setEnabled(false);
 
-            guiderCombo->setEnabled(false);
             ST4Combo->setEnabled(false);
             exposureIN->setEnabled(false);
             binningCombo->setEnabled(false);
             boxSizeCombo->setEnabled(false);
             filterCombo->setEnabled(false);
+
+            if (Options::guideRemoteImagesEnabled() == false)
+            {
+                guiderCombo->setCurrentIndex(-1);
+                guiderCombo->setToolTip(i18n("Select a camera to disable remote streaming."));
+            }
+            else
+                guiderCombo->setEnabled(false);
 
             break;
     }
@@ -2355,7 +2438,7 @@ void Guide::showFITSViewer()
     }
 }
 
-void Guide::setBLOBEnabled(bool enable)
+void Guide::setBLOBEnabled(bool enable, const QString &ccd)
 {
     // Nothing to do if guider is international or remote images are enabled
     if (guiderType == GUIDE_INTERNAL || Options::guideRemoteImagesEnabled())
@@ -2365,6 +2448,10 @@ void Guide::setBLOBEnabled(bool enable)
 
     foreach(ISD::CCD *oneCCD, CCDs)
     {
+        // If it's not the desired CCD, continue.
+        if (ccd.isEmpty() == false && QString(oneCCD->getDeviceName()) != ccd)
+            continue;
+
         if (enable == false && oneCCD->isBLOBEnabled())
         {
             appendLogText(i18n("Disabling remote image reception from %1", oneCCD->getDeviceName()));
@@ -2378,4 +2465,52 @@ void Guide::setBLOBEnabled(bool enable)
         }
     }
 }
+
+void Guide::ditherDirectly()
+{
+    double ditherPulse = Options::ditherNoGuidingPulse();
+
+    // Randomize pulse length. It is equal to 50% of pulse length + random value up to 50%
+    // e.g. if ditherPulse is 500ms then final pulse is = 250 + rand(0 to 250)
+    int ra_msec  = static_cast<int>(((double)rand() / RAND_MAX) * ditherPulse / 2.0 +  ditherPulse / 2.0);
+    int ra_polarity = (rand() % 2 == 0) ? 1 : -1;
+
+    int de_msec  = static_cast<int>(((double)rand() / RAND_MAX) * ditherPulse / 2.0 +  ditherPulse / 2.0);
+    int de_polarity = (rand() % 2 == 0) ? 1 : -1;
+
+    qCInfo(KSTARS_EKOS_GUIDE) << "Starting non-guiding dither...";
+    qCDebug(KSTARS_EKOS_GUIDE) << "dither ra_msec:" << ra_msec << "ra_polarity:" << ra_polarity << "de_msec:" << de_msec << "de_polarity:" << de_polarity;
+
+    bool rc = sendPulse(ra_polarity > 0 ? RA_INC_DIR : RA_DEC_DIR, ra_msec, de_polarity > 0 ? DEC_INC_DIR : DEC_DEC_DIR, de_msec);
+
+    if (rc)
+    {
+        qCInfo(KSTARS_EKOS_GUIDE) << "Non-guiding dither successful.";
+        QTimer::singleShot( (ra_msec > de_msec ? ra_msec : de_msec) + Options::ditherSettle() * 1000 + 100, [this]()
+        {
+            emit newStatus(GUIDE_DITHERING_SUCCESS);
+            state = GUIDE_IDLE;
+        });
+    }
+    else
+    {
+        qCWarning(KSTARS_EKOS_GUIDE) << "Non-guiding dither failed.";
+        emit newStatus(GUIDE_DITHERING_ERROR);
+        state = GUIDE_IDLE;
+    }
+}
+
+void Guide::updateTelescopeType(int index)
+{
+    if (currentCCD == nullptr)
+        return;
+
+    focal_length = (index == ISD::CCD::TELESCOPE_PRIMARY) ? primaryFL : guideFL;
+    aperture = (index == ISD::CCD::TELESCOPE_PRIMARY) ? primaryAperture : guideAperture;
+
+    Options::setGuideScopeType(index);
+
+    syncTelescopeInfo();
+}
+
 }

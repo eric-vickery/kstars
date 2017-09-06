@@ -518,7 +518,7 @@ void KStars::slotToggleWIView()
 
     if (!m_WIView)
     {
-        m_WIView = new WIView(0);
+        m_WIView = new WIView(nullptr);
         m_wiDock = new QDockWidget(this);
         m_wiDock->setStyleSheet("QDockWidget::title{background-color:black;}");
         m_wiDock->setObjectName("What's Interesting");
@@ -751,6 +751,7 @@ void KStars::slotINDITelescopeTrack()
         if (telescope != nullptr && telescope->isConnected())
         {
             KToggleAction *a = qobject_cast<KToggleAction*>(sender());
+
             if (a != nullptr)
             {
                 telescope->setTrackEnabled(a->isChecked());
@@ -761,7 +762,7 @@ void KStars::slotINDITelescopeTrack()
 #endif
 }
 
-void KStars::slotINDITelescopeSlew()
+void KStars::slotINDITelescopeSlew(bool focused_object)
 {
 #ifdef HAVE_INDI
     if (m_KStarsData == nullptr || INDIListener::Instance() == nullptr)
@@ -773,19 +774,27 @@ void KStars::slotINDITelescopeSlew()
 
         if (telescope != nullptr && telescope->isConnected())
         {
-            if (m_SkyMap->focusObject() != nullptr)
-                telescope->Slew(m_SkyMap->focusObject());
-            // FIXME This can cause havoc for end users so it should
-            // probably gets its own action
-            //else
-                //telescope->Slew(m_SkyMap->mousePoint());
+            if (focused_object)
+            {
+                if (m_SkyMap->focusObject() != nullptr)
+                    telescope->Slew(m_SkyMap->focusObject());
+            } else
+                telescope->Slew(m_SkyMap->mousePoint());
+
             return;
         }
     }
 #endif
 }
 
-void KStars::slotINDITelescopeSync()
+void KStars::slotINDITelescopeSlewMousePointer()
+{
+#ifdef HAVE_INDI
+  slotINDITelescopeSlew(false);
+#endif
+}
+
+void KStars::slotINDITelescopeSync(bool focused_object)
 {
 #ifdef HAVE_INDI
     if (m_KStarsData == nullptr || INDIListener::Instance() == nullptr)
@@ -797,13 +806,23 @@ void KStars::slotINDITelescopeSync()
 
         if (telescope != nullptr && telescope->isConnected() && telescope->canSync())
         {
-            if (m_SkyMap->focusObject() != nullptr)
-                telescope->Sync(m_SkyMap->focusObject());
-            //else
-                //telescope->Sync(m_SkyMap->mousePoint());
+            if (focused_object)
+            {
+                if (m_SkyMap->focusObject() != nullptr)
+                    telescope->Sync(m_SkyMap->focusObject());
+            } else
+                telescope->Sync(m_SkyMap->mousePoint());
+
             return;
         }
     }
+#endif
+}
+
+void KStars::slotINDITelescopeSyncMousePointer()
+{
+#ifdef HAVE_INDI
+  slotINDITelescopeSync(false);
 #endif
 }
 
@@ -1166,7 +1185,7 @@ void KStars::slotRunScript()
     {
         if (fileURL.isLocalFile() == false)
         {
-            KMessageBox::sorry(0, i18n("Executing remote scripts is not supported."));
+            KMessageBox::sorry(nullptr, i18n("Executing remote scripts is not supported."));
             return;
         }
 
@@ -1258,7 +1277,7 @@ void KStars::slotRunScript()
         if (!f.open(QIODevice::ReadOnly))
         {
             QString message = i18n("Could not open file %1", f.fileName());
-            KMessageBox::sorry(0, message, i18n("Could Not Open File"));
+            KMessageBox::sorry(nullptr, message, i18n("Could Not Open File"));
             return;
         }
 
@@ -1284,7 +1303,7 @@ void KStars::slotRunScript()
         {
             int answer;
             answer = KMessageBox::warningContinueCancel(
-                0,
+                nullptr,
                 i18n("The selected script contains unrecognized elements, "
                      "indicating that it was not created using the KStars script builder. "
                      "This script may not function properly, and it may even contain malicious code. "
@@ -1327,7 +1346,7 @@ void KStars::slotPrint()
 
         int answer;
         answer = KMessageBox::questionYesNoCancel(
-            0, message, i18n("Switch to Star Chart Colors?"), KGuiItem(i18n("Switch Color Scheme")),
+            nullptr, message, i18n("Switch to Star Chart Colors?"), KGuiItem(i18n("Switch Color Scheme")),
             KGuiItem(i18n("Do Not Switch")), KStandardGuiItem::cancel(), "askAgainPrintColors");
 
         if (answer == KMessageBox::Cancel)
@@ -1534,7 +1553,7 @@ void KStars::slotSetZoom()
     double maxAngle     = map()->width() / (MINZOOM * dms::DegToRad);
 
     double angSize = QInputDialog::getDouble(
-        0,
+        nullptr,
         i18nc("The user should enter an angle for the field-of-view of the display",
               "Enter Desired Field-of-View Angle"),
         i18n("Enter a field-of-view angle in degrees: "), currentAngle, minAngle, maxAngle, 1, &ok);
@@ -1687,7 +1706,7 @@ void KStars::slotEyepieceView(SkyPoint *sp, const QString &imagePath)
 
     // FIXME: Move FOV choice into the Eyepiece View tool itself.
     bool ok        = true;
-    const FOV *fov = 0;
+    const FOV *fov = nullptr;
     if (!data()->getAvailableFOVs().isEmpty())
     {
         // Ask the user to choose from a list of available FOVs.

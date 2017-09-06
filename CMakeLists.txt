@@ -117,7 +117,7 @@ endif(BUILD_KSTARS_LITE)
 ## Eigen3 Library
 find_package(Eigen3 REQUIRED)
 add_definitions(${EIGEN_DEFINITIONS})
-include_directories(${EIGEN3_INCLUDE_DIR})
+include_directories(SYSTEM ${EIGEN3_INCLUDE_DIR})
 
 ## CFITSIO Library
 if(BUILD_KSTARS_LITE)
@@ -366,6 +366,8 @@ add_subdirectory(datahandlers)
 IF (NOT ANDROID)
     enable_testing(true)
     add_subdirectory(Tests)
+    # Make it possible to use the po files fetched by the fetch-translations step
+    ki18n_install("${CMAKE_CURRENT_BINARY_DIR}/po")
 ENDIF ()
 
 install(FILES org.kde.kstars.appdata.xml DESTINATION ${KDE_INSTALL_METAINFODIR})

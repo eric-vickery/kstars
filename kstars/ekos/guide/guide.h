@@ -345,6 +345,7 @@ class Guide : public QWidget, public Ui::Guide
     void refreshColorScheme();
 
   protected slots:
+    void updateTelescopeType(int index);
     void updateCCDBin(int index);
 
     /**
@@ -392,6 +393,8 @@ class Guide : public QWidget, public Ui::Guide
 
     void processCaptureTimeout();
 
+    void ditherDirectly();
+
   signals:
     void newLog();
     void newStatus(Ekos::GuideState status);
@@ -433,8 +436,9 @@ class Guide : public QWidget, public Ui::Guide
     /**
      * @brief setBLOBEnabled Enable or disable BLOB reception from current CCD if using external guider
      * @param enable True to enable BLOB reception, false to disable BLOB reception
+     * @param name CCD to enable to disable. If empty (default), then action is applied to all CCDs.
      */
-    void setBLOBEnabled(bool enable);
+    void setBLOBEnabled(bool enable, const QString &ccd = QString());
 
     // Operation stack
     void buildOperationStack(GuideState operation);
@@ -467,8 +471,8 @@ class Guide : public QWidget, public Ui::Guide
     // Guide Params
     double ccdPixelSizeX { 0 };
     double ccdPixelSizeY { 0 };
-    double mountAperture { 0 };
-    double mountFocalLength { 0 };
+    double aperture { 0 };
+    double focal_length { 0 };
     double guideDeviationRA { 0 };
     double guideDeviationDEC { 0 };
     double pixScaleX { 0 };
@@ -526,5 +530,7 @@ class Guide : public QWidget, public Ui::Guide
     QPointer<PHD2> phd2Guider;
     QPointer<LinGuider> linGuider;
     QPointer<FITSViewer> fv;
+
+    double primaryFL = -1, primaryAperture = -1, guideFL = -1, guideAperture = -1;
 };
 }

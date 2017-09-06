@@ -49,7 +49,7 @@ void fatalErrorMessage(QString fname)
 {
 #ifndef KSTARS_LITE
 
-    KMessageBox::sorry(0,
+    KMessageBox::sorry(nullptr,
                        i18n("The file  %1 could not be found. "
                             "KStars cannot run properly without this file. "
                             "KStars searches for this file in following locations:\n\n\t"
@@ -88,7 +88,7 @@ bool nonFatalErrorMessage(QString fname)
 #endif
 }
 
-KStarsData *KStarsData::pinstance = 0;
+KStarsData *KStarsData::pinstance = nullptr;
 
 KStarsData *KStarsData::Create()
 {
@@ -331,7 +331,7 @@ GeoLocation *KStarsData::locationNamed(const QString &city, const QString &provi
             return loc;
         }
     }
-    return 0;
+    return nullptr;
 }
 
 void KStarsData::setLocationFromOptions()
@@ -370,7 +370,7 @@ void KStarsData::setLocation(const GeoLocation &l)
 SkyObject *KStarsData::objectNamed(const QString &name)
 {
     if ((name == "star") || (name == "nothing") || name.isEmpty())
-        return 0;
+        return nullptr;
     return skyComposite()->findByName(name);
 }
 
@@ -381,7 +381,7 @@ bool KStarsData::readCityData()
     citydb.setDatabaseName(dbfile);
     if (citydb.open() == false)
     {
-        qWarning() << "Unable to open city database file " << dbfile << citydb.lastError().text() << endl;
+        qCCritical(KSTARS) << "Unable to open city database file " << dbfile << citydb.lastError().text();
         return false;
     }
 
@@ -390,7 +390,7 @@ bool KStarsData::readCityData()
     //get_query.prepare("SELECT * FROM city");
     if (!get_query.exec("SELECT * FROM city"))
     {
-        qDebug() << get_query.lastError();
+        qCCritical(KSTARS) << get_query.lastError();
         return false;
     }
 
@@ -878,7 +878,7 @@ bool KStarsData::executeScript(const QString &scriptname, SkyMap *map)
             QStringList fn = line.mid(i).split(' ');
 
             //DEBUG
-            qDebug() << fn << endl;
+            //qDebug() << fn << endl;
 
             if (fn[0] == "lookTowards" && fn.size() >= 2)
             {
@@ -963,7 +963,7 @@ bool KStarsData::executeScript(const QString &scriptname, SkyMap *map)
             {
                 fn.removeAll(fn.first());
                 QString csName = fn.join(" ").remove('\"');
-                qDebug() << "Color scheme: " << csName << endl;
+                qCDebug(KSTARS) << "Loading Color scheme: " << csName;
 
                 QString filename = csName.toLower().trimmed();
                 bool ok(false);

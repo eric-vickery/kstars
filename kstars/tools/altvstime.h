@@ -37,7 +37,7 @@ class AltVsTimeUI : public QFrame, public Ui::AltVsTime
 {
     Q_OBJECT
   public:
-    explicit AltVsTimeUI(QWidget *p = 0);
+    explicit AltVsTimeUI(QWidget *p = nullptr);
 };
 
 /**
@@ -57,7 +57,7 @@ class AltVsTime : public QDialog
     explicit AltVsTime(QWidget *parent = nullptr);
 
     /** Destructor */
-    ~AltVsTime();
+    ~AltVsTime() override;
 
     /**
      * Determine the limits for the sideral time axis, using

@@ -1471,7 +1471,11 @@
       <entry name="AutoMeridianFlip" type="Bool">
          <label>Flips the mount when reaching the meridian, if supported.</label>
          <default>false</default>
-      </entry>      
+      </entry>
+      <entry name="ResetMountModelAfterMeridian" type="Bool">
+         <label>Reset mount model after meridian flip.</label>
+         <default>false</default>
+      </entry>
       <entry name="ADUValue" type="UInt">
          <label>Desired flat field ADU percentage</label>
          <whatsthis>If set, Ekos will capture a few flat images to determine the optimal exposure time to achieve the desired ADU percentage.</whatsthis>
@@ -1589,6 +1593,10 @@
          <label>Focus process algorithm</label>
          <default>0</default>
       </entry>
+      <entry name="FocusFramesCount" type="UInt">
+         <label>Number of focus frames to average for HFR calculations.</label>
+         <default>1</default>
+      </entry>
    </group>
    <group name="Align">
       <entry name="DefaultAlignCCD" type="String">
@@ -1615,8 +1623,9 @@
          <label>Set solver type (online, offline, remote).</label>
          <default>0</default>
       </entry>      
-      <entry name="GuideScopeCCDs" type="StringList">
-         <label>List of CCDs using Guide Scope parameters instead of Primary Scope</label>
+      <entry name="SolverScopeType" type="UInt">
+         <label>Index of telescope type to be used when solving an image. 0 for Primary, 1 for Guide</label>
+         <default>0</default>
       </entry>
       <entry name="SolverGotoOption" type="UInt">
          <label>Action to take if solver if successful (Sync, Slew to Target, or None)</label>
@@ -1789,6 +1798,10 @@
          <label>Lin_guider Event Monitoring Port</label>
          <default>5656</default>
       </entry>
+      <entry name="GuideScopeType" type="UInt">
+         <label>Index of telescope type to be used when guiding. 0 for Primary, 1 for Guide</label>
+         <default>0</default>
+      </entry>
       <entry name="CalibrationPulseDuration" type="UInt">
          <label>Pulse duration in milliseconds used for guiding pulses during calibration stage.</label>
          <default>1000</default>
@@ -1861,12 +1874,20 @@
          <label>How many dithering attempts to undertake before giving up.</label>
          <default>10</default>
       </entry>
+      <entry name="DitherNoGuidingPulse" type="UInt">
+         <label>Pulse length in milliseconds used for non-guiding dither.</label>
+         <default>500</default>
+      </entry>
       <entry name="DitherFailAbortsAutoGuide" type="Bool">
          <label>If dithering fails then abort autoguide.</label>
          <default>false</default>
       </entry>
       <entry name="DitherEnabled" type="Bool">
          <label>Use Auto Dithering when guiding.</label>
+         <default>false</default>
+      </entry>
+      <entry name="DitherNoGuiding" type="Bool">
+         <label>Perform dithering even when not guiding.</label>
          <default>false</default>
       </entry>
       <entry name="AOLimit" type="Double">
@@ -1948,7 +1969,7 @@
          <label>Perform pre-emptive shutdown if no jobs are due for a number of hours.</label>
          <default>false</default>
       </entry>
-      <entry name="ResetMountModel" type="Bool">
+      <entry name="ResetMountModelOnAlignFail" type="Bool">
          <label>Reset mount model in case of alignment failure.</label>
          <default>false</default>
       </entry>

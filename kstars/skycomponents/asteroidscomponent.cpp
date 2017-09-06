@@ -249,10 +249,10 @@ void AsteroidsComponent::draw(SkyPainter *skyp)
 
 SkyObject *AsteroidsComponent::objectNearest(SkyPoint *p, double &maxrad)
 {
-    SkyObject *oBest = 0;
+    SkyObject *oBest = nullptr;
 
     if (!selected())
-        return 0;
+        return nullptr;
 
     foreach (SkyObject *o, m_ObjectList)
     {
@@ -275,6 +275,7 @@ void AsteroidsComponent::updateDataFile()
     downloadJob = new FileDownloader();
 
     downloadJob->setProgressDialogEnabled(true, i18n("Asteroid Update"), i18n("Downloading asteroids updates..."));
+    downloadJob->registerDataVerification([&](const QByteArray &data) { return data.startsWith("full_name");});
 
     QObject::connect(downloadJob, SIGNAL(downloaded()), this, SLOT(downloadReady()));
     QObject::connect(downloadJob, SIGNAL(error(QString)), this, SLOT(downloadError(QString)));

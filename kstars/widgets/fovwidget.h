@@ -26,13 +26,13 @@ class FOVWidget : public QFrame
 {
     Q_OBJECT
   public:
-    explicit FOVWidget(QWidget *parent = 0);
-    ~FOVWidget();
+    explicit FOVWidget(QWidget *parent = nullptr);
+    ~FOVWidget() override;
 
     void setFOV(FOV *f);
 
   protected:
-    void paintEvent(QPaintEvent *e) Q_DECL_OVERRIDE;
+    void paintEvent(QPaintEvent *e) override;
 
   private:
     FOV *m_FOV;
