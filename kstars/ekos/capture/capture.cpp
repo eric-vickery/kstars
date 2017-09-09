@@ -1216,9 +1216,7 @@ bool Capture::resumeSequence()
         appendLogText(i18n("Sequence paused."));
         secondsLabel->setText(i18n("Paused..."));
         return false;
-    }
-
-    qCDebug(KSTARS_EKOS_CAPTURE) << "Resuming capture sequence...";
+    }    
 
     // If seqTotalCount is zero, we have to find if there are more pending jobs in the queue
     if (seqTotalCount == 0)
@@ -1249,7 +1247,10 @@ bool Capture::resumeSequence()
             return true;
         }
         else
+        {
+            qCDebug(KSTARS_EKOS_CAPTURE) << "All capture jobs complete.";
             return false;
+        }
     }
     // Otherwise, let's prepare for next exposure after making sure in-sequence focus and dithering are complete if applicable.
     else
@@ -2028,9 +2029,66 @@ void Capture::prepareJob(SequenceJob *job)
 {
     activeJob = job;
 
+    qCDebug(KSTARS_EKOS_CAPTURE) << "Preparing capture job" << job->getFullPrefix() << "for execution.";
+
     if (activeJob->getActiveCCD() != currentCCD)
     {
         setCCD(activeJob->getActiveCCD()->getDeviceName());
+    }
+
+    if (activeJob->isPreview())
+        seqTotalCount = -1;
+    else
+        seqTotalCount = activeJob->getCount();
+
+    seqDelay = activeJob->getDelay();
+
+    seqCurrentCount = activeJob->getCompleted();
+
+    if (activeJob->isPreview() == false)
+    {
+        fullImgCountOUT->setText(QString::number(seqTotalCount));
+        currentImgCountOUT->setText(QString::number(seqCurrentCount));
+
+        // set the progress info
+        imgProgress->setEnabled(true);
+        imgProgress->setMaximum(seqTotalCount);
+        imgProgress->setValue(seqCurrentCount);
+
+        if (currentCCD->getUploadMode() != ISD::CCD::UPLOAD_LOCAL)
+            updateSequencePrefix(activeJob->getFullPrefix(), activeJob->getFITSDir());
+    }
+
+    // We check if the job is already fully or partially complete by checking how many files of its type exist on the file system unless ignoreJobProgress is set to true
+    if (ignoreJobProgress == false && activeJob->isPreview() == false)
+    {
+        checkSeqBoundary(activeJob->getFITSDir());
+
+        if (seqFileCount > 0)
+        {
+            // Fully complete
+            if (seqFileCount >= seqTotalCount)
+            {
+                seqCurrentCount = seqTotalCount;
+                activeJob->setCompleted(seqCurrentCount);
+                imgProgress->setValue(seqCurrentCount);
+                qCDebug(KSTARS_EKOS_CAPTURE) << "Job" << job->getFullPrefix() << "already complete.";
+                processJobCompletion();
+                return;
+            }
+
+            // Partially complete
+            seqCurrentCount = seqFileCount;
+            activeJob->setCompleted(seqCurrentCount);
+            currentImgCountOUT->setText(QString::number(seqCurrentCount));
+            qCDebug(KSTARS_EKOS_CAPTURE) << "Job" << job->getFullPrefix() << seqCurrentCount << "out of" << seqTotalCount << "is complete.";
+            imgProgress->setValue(seqCurrentCount);
+
+            // Emit progress update
+            emit newImage(nullptr, activeJob);
+        }
+
+        currentCCD->setNextSequenceID(nextSequenceID);
     }
 
     if (currentCCD->isBLOBEnabled() == false)
@@ -2186,60 +2244,6 @@ void Capture::preparePreCaptureActions()
 void Capture::executeJob()
 {
     activeJob->disconnect(this);
-
-    if (activeJob->isPreview())
-        seqTotalCount = -1;
-    else
-        seqTotalCount = activeJob->getCount();
-
-    seqDelay = activeJob->getDelay();
-
-    seqCurrentCount = activeJob->getCompleted();
-
-    if (activeJob->isPreview() == false)
-    {
-        fullImgCountOUT->setText(QString::number(seqTotalCount));
-        currentImgCountOUT->setText(QString::number(seqCurrentCount));
-
-        // set the progress info
-        imgProgress->setEnabled(true);
-        imgProgress->setMaximum(seqTotalCount);
-        imgProgress->setValue(seqCurrentCount);
-
-        if (currentCCD->getUploadMode() != ISD::CCD::UPLOAD_LOCAL)
-            updateSequencePrefix(activeJob->getFullPrefix(), activeJob->getFITSDir());
-    }
-
-    // We check if the job is already fully or partially complete by checking how many files of its type exist on the file system unless ignoreJobProgress is set to true
-    //if (ignoreJobProgress == false && Options::rememberJobProgress() && activeJob->isPreview() == false)
-    if (ignoreJobProgress == false && activeJob->isPreview() == false)
-    {
-        checkSeqBoundary(activeJob->getFITSDir());
-
-        if (seqFileCount > 0)
-        {
-            // Fully complete
-            if (seqFileCount >= seqTotalCount)
-            {
-                seqCurrentCount = seqTotalCount;
-                activeJob->setCompleted(seqCurrentCount);
-                imgProgress->setValue(seqCurrentCount);
-                processJobCompletion();
-                return;
-            }
-
-            // Partially complete
-            seqCurrentCount = seqFileCount;
-            activeJob->setCompleted(seqCurrentCount);
-            currentImgCountOUT->setText(QString::number(seqCurrentCount));
-            imgProgress->setValue(seqCurrentCount);
-
-            // Emit progress update
-            emit newImage(nullptr, activeJob);
-        }
-
-        currentCCD->setNextSequenceID(nextSequenceID);
-    }
 
     QMap<QString, QString> FITSHeader;
     if (observerName.isEmpty() == false)
@@ -4380,7 +4384,7 @@ void Capture::setNewRemoteFile(QString file)
 
 void Capture::startPostFilterAutoFocus()
 {
-    if (focusState >= FOCUS_PROGRESS)
+    if (focusState >= FOCUS_PROGRESS || state == CAPTURE_FOCUSING)
         return;
 
     secondsLabel->setText(i18n("Focusing..."));
