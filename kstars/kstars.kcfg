@@ -219,6 +219,38 @@
          <label>Video streaming window height</label>
          <default>240</default>
       </entry>
+      <entry name="INDIMountLogging" type="Bool">
+         <label>Enable INDI Mount logging</label>
+         <default>false</default>
+      </entry>
+      <entry name="INDIFocuserLogging" type="Bool">
+         <label>Enable INDI Focuser logging</label>
+         <default>false</default>
+      </entry>
+      <entry name="INDICCDLogging" type="Bool">
+         <label>Enable INDI CCD logging</label>
+         <default>false</default>
+      </entry>
+      <entry name="INDIFilterWheelLogging" type="Bool">
+         <label>Enable INDI Filter Wheel logging</label>
+         <default>false</default>
+      </entry>
+      <entry name="INDIDomeLogging" type="Bool">
+         <label>Enable INDI Dome logging</label>
+         <default>false</default>
+      </entry>
+      <entry name="INDIDetectorLogging" type="Bool">
+         <label>Enable INDI Detector logging</label>
+         <default>false</default>
+      </entry>
+      <entry name="INDIWeatherLogging" type="Bool">
+         <label>Enable INDI Weather logging</label>
+         <default>false</default>
+      </entry>
+      <entry name="INDIAuxiliaryLogging" type="Bool">
+         <label>Enable INDI Auxiliary logging</label>
+         <default>false</default>
+      </entry>
    </group>
 
    <group name="Location">
@@ -636,12 +668,12 @@
       <entry name="UseLatinConstellNames" type="Bool">
          <label>Use Latin constellation names?</label>
          <whatsthis>Use Latin constellation names.</whatsthis>
-         <default>true</default>
+         <default>false</default>
       </entry>
       <entry name="UseLocalConstellNames" type="Bool">
          <label>Use localized constellation names?</label>
          <whatsthis>Use localized constellation names (if localized names are not available, default to Latin names).</whatsthis>
-         <default>false</default>
+         <default>true</default>
       </entry>
       <entry name="UseAltAz" type="Bool">
          <label>Use horizontal coordinate system?</label>
@@ -1306,6 +1338,10 @@
       </entry>      
    </group>
    <group name="FITSViewer">
+   <entry name="useFITSViewer" type="Bool">
+      <label>Display every image captured in a FITS Viewer window.</label>
+      <default>true</default>
+   </entry>
    <entry name="singlePreviewFITS" type="Bool">
       <label>Preview FITS in a single tab?</label>
       <whatsthis>Display all captured FITS images in a single tab instead of multiple tabs per image.</whatsthis>
@@ -1437,6 +1473,18 @@
       <entry name="DefaultObserver" type="String">
          <label>Default observer full name.</label>
       </entry>
+      <entry name="SyncFOVPA" type="Bool">
+         <label>Sync FOV indicator Position Angle with Rotator Settings Position Angle</label>
+         <default>false</default>
+      </entry>
+      <entry name="PAMultiplier" type="Double">
+         <label>Position angle multiplier</label>
+         <default>1</default>
+      </entry>
+      <entry name="PAOffset" type="Double">
+         <label>Position angle offset</label>
+         <default>0</default>
+      </entry>
       <entry name="GuideDeviation" type="Double">
          <label>Default maximum permittable guide deviation</label>
          <whatsthis>If guide deviation exceeds this limit, the exposure will be automatically aborted and only resumed when the deviation is within this limit.</whatsthis>
@@ -1476,9 +1524,30 @@
          <label>Reset mount model after meridian flip.</label>
          <default>false</default>
       </entry>
-      <entry name="ADUValue" type="UInt">
-         <label>Desired flat field ADU percentage</label>
-         <whatsthis>If set, Ekos will capture a few flat images to determine the optimal exposure time to achieve the desired ADU percentage.</whatsthis>
+      <entry name="CalibrationADUValue" type="UInt">
+         <label>Desired flat field ADU</label>
+         <whatsthis>If set, Ekos will capture a few flat images to determine the optimal exposure time to achieve the desired ADU value.</whatsthis>
+         <default>0</default>
+      </entry>
+      <entry name="CalibrationADUValueTolerance" type="UInt">
+         <label>ADU Value tolerance</label>
+         <whatsthis>Maximum difference between measured and target ADU values to deem the value as acceptable.</whatsthis>
+         <default>1000</default>
+      </entry>
+      <entry name="CalibrationFlatSourceIndex" type="UInt">
+         <label>Index of flat source option.</label>
+         <default>0</default>
+      </entry>
+      <entry name="CalibrationFlatDurationIndex" type="UInt">
+         <label>Index of flat duration option.</label>
+         <default>0</default>
+      </entry>
+      <entry name="CalibrationWallAz" type="Double">
+         <label>Azimuth of calibration wall location.</label>
+         <default>0</default>
+      </entry>
+      <entry name="CalibrationWallAlt" type="Double">
+         <label>Altitude of calibration wall location.</label>
          <default>0</default>
       </entry>
       <entry name="MaxTemperatureDiff" type="Double">
@@ -1504,9 +1573,9 @@
       <entry name="AutoStretch" type="Bool">
          <label>Perform auto stretch on captured images in FITS Viewer.</label>
          <default>true</default>
-      </entry>
-      <entry name="useFITSViewerInCapture" type="Bool">
-         <label>Display every image captured in the sequence in a FitsViewer window.</label>
+      </entry>      
+      <entry name="useSummaryPreview" type="Bool">
+         <label>Display every image captured sequence image in the Ekos summary screen preview window.</label>
          <default>true</default>
       </entry>
    </group>
@@ -1518,6 +1587,10 @@
          <label>Default Focuser step ticks</label>
          <whatsthis>Step size of the absolute focuser. The step size TICKS should be adjusted so that when the focuser moves TICKS steps, the difference in HFR is more than 0.1 pixels. Lower the value when you are close to optimal focus.</whatsthis>
          <default>100</default>
+      </entry>
+      <entry name="FocusSettleTime" type="Double">
+         <whatsthis>Wait for this many seconds after moving the focuser before capturing the next image during AutoFocus.</whatsthis>
+         <default>0</default>
       </entry>
       <entry name="FocusTolerance" type="Double">
          <label>Default Focuser tolerance value</label>
@@ -1565,14 +1638,6 @@
          <label>Suspend guiding while autofocus in progress.</label>
          <default>true</default>
       </entry>
-      <entry name="LockFocusFilter" type="Bool">
-         <label>Use specified filter when performing focus regardless of current filter settings.</label>
-         <default>false</default>
-      </entry>
-      <entry name="LockFocusFilterIndex" type="UInt">
-         <label>Use specified filter index when performing focus regardless of current filter settings.</label>
-         <default>0</default>
-      </entry>
       <entry name="UseFocusDarkFrame" type="Bool">
          <label>Take a dark frame and subtract it before running autofocus operation.</label>
          <default>false</default>
@@ -1618,6 +1683,14 @@
       <entry name="AstrometrySolverVerbose" type="Bool">
          <whatsthis>Display detailed verbose messages of the astrometry solver process while in progress.</whatsthis>
          <default>false</default>
+      </entry>
+      <entry name="AstrometryUseRotator" type="Bool">
+         <whatsthis>Use rotator when performing load and slew.</whatsthis>
+         <default>false</default>
+      </entry>
+      <entry name="AstrometryRotatorThreshold" type="Double">
+         <whatsthis>Threshold between measured and FITS position angles in arcminutes to consider the load and slew operation successful.</whatsthis>
+         <default>30</default>
       </entry>
       <entry name="SolverType" type="UInt">
          <label>Set solver type (online, offline, remote).</label>
@@ -2017,6 +2090,10 @@
       <entry name="LastServerPort" type="UInt">
          <label>The port of last used server</label>
          <default>7624</default>
+      </entry>
+      <entry name="LastWebManagerPort" type="UInt">
+         <label>The port of last used Web Manager</label>
+         <default>8624</default>
       </entry>
    </group>
    <group name="HIPS">

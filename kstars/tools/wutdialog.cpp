@@ -127,7 +127,7 @@ void WUTDialog::init()
         if (m_VisibleList.contains(c))
             visibleObjects(c).clear();
         else
-            m_VisibleList[c] = QList<const SkyObject *>();
+            m_VisibleList[c] = QSet<const SkyObject *>();
 
         m_CategoryInitialized[c] = false;
     }
@@ -174,7 +174,9 @@ void WUTDialog::init()
         hDur = int(Dur);
         mDur = int(60.0 * (Dur - (float)hDur));
         QTime tDur(hDur, mDur);
-        sDuration = QLocale().toString(tDur);
+        //sDuration = QLocale().toString(tDur);
+        // Should always be in 24 hour format
+        sDuration = tDur.toString("hh:mm");
     }
 
     WUT->SunSetLabel->setText(i18nc("Sunset at time %1 on date %2", "Sunset: %1 on %2", sSet,
@@ -246,7 +248,7 @@ void WUTDialog::init()
     delete oldNum;
 }
 
-QList<const SkyObject *> &WUTDialog::visibleObjects(const QString &category)
+QSet<const SkyObject *> &WUTDialog::visibleObjects(const QString &category)
 {
     return m_VisibleList[category];
 }
@@ -274,7 +276,7 @@ void WUTDialog::slotLoadList(const QString &c)
                 SkyObject *o = data->skyComposite()->findByName(name);
 
                 if (checkVisibility(o) && o->mag() <= m_Mag)
-                    visibleObjects(c).append(o);
+                    visibleObjects(c).insert(o);
             }
 
             m_CategoryInitialized[c] = true;
@@ -287,12 +289,12 @@ void WUTDialog::slotLoadList(const QString &c)
             starObjects.append(data->skyComposite()->objectLists(SkyObject::STAR));
             starObjects.append(data->skyComposite()->objectLists(SkyObject::CATALOG_STAR));
 
-            for (QVector<QPair<QString, const SkyObject *>>::iterator it = starObjects.begin();it != starObjects.end();it++)
+            for (QVector<QPair<QString, const SkyObject *>>::ConstIterator it = starObjects.cbegin();it != starObjects.cend(); ++it)
             {
-               const SkyObject *o =  it->second;
+               const SkyObject *o =  (*it).second;
                if (checkVisibility(o) && o->mag() <= m_Mag)
                {
-                   visibleObjects(c).append(o);
+                   visibleObjects(c).insert(o);
                }
             }
             m_CategoryInitialized[c] = true;
@@ -302,7 +304,7 @@ void WUTDialog::slotLoadList(const QString &c)
         {
             foreach (SkyObject *o, data->skyComposite()->constellationNames())
                 if (checkVisibility(o))
-                    visibleObjects(c).append(o);
+                    visibleObjects(c).insert(o);
 
             m_CategoryInitialized[c] = true;
         }
@@ -310,8 +312,8 @@ void WUTDialog::slotLoadList(const QString &c)
         else if (c == m_Categories[6]) //Asteroids
         {
             foreach (SkyObject *o, data->skyComposite()->asteroids())
-                if (checkVisibility(o) && o->name() != i18n("Pluto") && o->mag() <= m_Mag)
-                    visibleObjects(c).append(o);
+                if (checkVisibility(o) && o->name() != i18nc("Asteroid name (optional)", "Pluto") && o->mag() <= m_Mag)
+                    visibleObjects(c).insert(o);
 
             m_CategoryInitialized[c] = true;
         }
@@ -320,7 +322,7 @@ void WUTDialog::slotLoadList(const QString &c)
         {
             foreach (SkyObject *o, data->skyComposite()->comets())
                 if (checkVisibility(o) && o->mag() <= m_Mag)
-                    visibleObjects(c).append(o);
+                    visibleObjects(c).insert(o);
 
             m_CategoryInitialized[c] = true;
         }
@@ -336,15 +338,15 @@ void WUTDialog::slotLoadList(const QString &c)
                     {
                         case SkyObject::OPEN_CLUSTER: //fall through
                         case SkyObject::GLOBULAR_CLUSTER:
-                            visibleObjects(m_Categories[4]).append(o); //star clusters
+                            visibleObjects(m_Categories[4]).insert(o); //star clusters
                             break;
                         case SkyObject::GASEOUS_NEBULA:   //fall through
                         case SkyObject::PLANETARY_NEBULA: //fall through
                         case SkyObject::SUPERNOVA_REMNANT:
-                            visibleObjects(m_Categories[2]).append(o); //nebulae
+                            visibleObjects(m_Categories[2]).insert(o); //nebulae
                             break;
                         case SkyObject::GALAXY:
-                            visibleObjects(m_Categories[3]).append(o); //galaxies
+                            visibleObjects(m_Categories[3]).insert(o); //galaxies
                             break;
                     }
                 }
@@ -358,7 +360,8 @@ void WUTDialog::slotLoadList(const QString &c)
 
     //Now the category has been initialized, we can populate the list widget
     foreach (const SkyObject *o, visibleObjects(c))
-        WUT->ObjectListWidget->addItem(o->name());
+        //WUT->ObjectListWidget->addItem(o->name());
+        WUT->ObjectListWidget->addItem(o->longname());
 
     setCursor(QCursor(Qt::ArrowCursor));
 

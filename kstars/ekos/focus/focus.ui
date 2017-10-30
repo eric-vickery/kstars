@@ -42,21 +42,105 @@
           <string>Focuser</string>
          </property>
          <layout class="QGridLayout" name="gridLayout_3">
-          <property name="leftMargin">
-           <number>3</number>
-          </property>
-          <property name="topMargin">
-           <number>3</number>
-          </property>
-          <property name="rightMargin">
-           <number>3</number>
-          </property>
-          <property name="bottomMargin">
-           <number>3</number>
-          </property>
-          <property name="spacing">
-           <number>3</number>
-          </property>
+          <item row="0" column="0">
+           <widget class="QLabel" name="label_14">
+            <property name="text">
+             <string>Focuser:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QComboBox" name="focuserCombo"/>
+          </item>
+          <item row="0" column="2">
+           <widget class="QPushButton" name="focusInB">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="text">
+             <string>Focus In</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="3">
+           <widget class="QPushButton" name="focusOutB">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="text">
+             <string>Focus Out</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="label_16">
+            <property name="text">
+             <string>Ticks:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QLineEdit" name="absTicksLabel">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="toolTip">
+             <string>Current absolute focuser position</string>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">QLineEdit[readOnly=&quot;true&quot;] { color: gray }</string>
+            </property>
+            <property name="readOnly">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="2">
+           <widget class="QSpinBox" name="absTicksSpin">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="toolTip">
+             <string>Desired absolute focus position</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="3">
+           <widget class="QPushButton" name="setAbsTicksB">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="toolTip">
+             <string>Set desired absolute focus position</string>
+            </property>
+            <property name="text">
+             <string>Set</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="label_22">
+            <property name="text">
+             <string>Start:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QPushButton" name="startFocusB">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="text">
+             <string>Auto Focus</string>
+            </property>
+           </widget>
+          </item>
           <item row="2" column="2">
            <widget class="QPushButton" name="startLoopB">
             <property name="enabled">
@@ -77,112 +161,33 @@
             </property>
            </widget>
           </item>
-          <item row="1" column="0">
-           <widget class="QLabel" name="label_16">
+          <item row="3" column="0">
+           <widget class="QLabel" name="label_9">
             <property name="text">
-             <string>Ticks:</string>
+             <string>Settle:</string>
             </property>
            </widget>
           </item>
-          <item row="2" column="0">
-           <widget class="QLabel" name="label_22">
-            <property name="text">
-             <string>Start:</string>
+          <item row="3" column="1">
+           <widget class="QDoubleSpinBox" name="FocusSettleTime">
+            <property name="toolTip">
+             <string>Wait for this many seconds after moving the focuser before capturing the next image during AutoFocus.</string>
+            </property>
+            <property name="decimals">
+             <number>3</number>
+            </property>
+            <property name="maximum">
+             <double>30.000000000000000</double>
             </property>
            </widget>
           </item>
-          <item row="0" column="2">
-           <widget class="QPushButton" name="focusInB">
-            <property name="enabled">
-             <bool>false</bool>
-            </property>
-            <property name="text">
-             <string>Focus In</string>
-            </property>
-           </widget>
-          </item>
-          <item row="0" column="0">
-           <widget class="QLabel" name="label_14">
-            <property name="text">
-             <string>Focuser:</string>
-            </property>
-           </widget>
-          </item>
-          <item row="0" column="1">
-           <widget class="QComboBox" name="focuserCombo"/>
-          </item>
-          <item row="2" column="1">
-           <widget class="QPushButton" name="startFocusB">
-            <property name="enabled">
-             <bool>false</bool>
-            </property>
-            <property name="text">
-             <string>Auto Focus</string>
-            </property>
-           </widget>
-          </item>
-          <item row="0" column="3">
-           <widget class="QPushButton" name="focusOutB">
-            <property name="enabled">
-             <bool>false</bool>
-            </property>
-            <property name="text">
-             <string>Focus Out</string>
-            </property>
-           </widget>
-          </item>
-          <item row="3" column="1" colspan="3">
+          <item row="3" column="2" colspan="2">
            <widget class="QPushButton" name="stopFocusB">
             <property name="enabled">
              <bool>false</bool>
             </property>
             <property name="text">
              <string>Stop</string>
-            </property>
-           </widget>
-          </item>
-          <item row="1" column="3">
-           <widget class="QPushButton" name="setAbsTicksB">
-            <property name="enabled">
-             <bool>false</bool>
-            </property>
-            <property name="toolTip">
-             <string>Set desired absolute focus position</string>
-            </property>
-            <property name="text">
-             <string>Set</string>
-            </property>
-           </widget>
-          </item>
-          <item row="1" column="2">
-           <widget class="QSpinBox" name="absTicksSpin">
-            <property name="enabled">
-             <bool>false</bool>
-            </property>
-            <property name="sizePolicy">
-             <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
-              <horstretch>0</horstretch>
-              <verstretch>0</verstretch>
-             </sizepolicy>
-            </property>
-            <property name="toolTip">
-             <string>Desired absolute focus position</string>
-            </property>
-           </widget>
-          </item>
-          <item row="1" column="1">
-           <widget class="QLineEdit" name="absTicksLabel">
-            <property name="enabled">
-             <bool>false</bool>
-            </property>
-            <property name="toolTip">
-             <string>Current absolute focuser position</string>
-            </property>
-            <property name="styleSheet">
-             <string notr="true">QLineEdit[readOnly=&quot;true&quot;] { color: gray }</string>
-            </property>
-            <property name="readOnly">
-             <bool>true</bool>
             </property>
            </widget>
           </item>
@@ -374,7 +379,7 @@
            </widget>
           </item>
           <item row="2" column="1">
-           <widget class="QComboBox" name="FilterCaptureCombo">
+           <widget class="QComboBox" name="FilterDevicesCombo">
             <property name="enabled">
              <bool>false</bool>
             </property>
@@ -409,16 +414,25 @@
              </widget>
             </item>
             <item>
-             <widget class="QCheckBox" name="lockFilterCheck">
+             <widget class="QPushButton" name="filterManagerB">
               <property name="enabled">
                <bool>false</bool>
               </property>
+              <property name="maximumSize">
+               <size>
+                <width>22</width>
+                <height>22</height>
+               </size>
+              </property>
               <property name="toolTip">
-               <string>If locked, the focus process will always use the specified filter when performing autofocus.
-Otherwise, the autofocus process will utilize whatever filter currently set by the driver.</string>
+               <string>Filter Settings</string>
               </property>
               <property name="text">
-               <string>Lock</string>
+               <string/>
+              </property>
+              <property name="icon">
+               <iconset resource="../../data/kstars.qrc">
+                <normaloff>:/icons/breeze/default/view-filter.svg</normaloff>:/icons/breeze/default/view-filter.svg</iconset>
               </property>
              </widget>
             </item>
@@ -944,24 +958,32 @@ Otherwise, the autofocus process will utilize whatever filter currently set by t
   </customwidget>
  </customwidgets>
  <tabstops>
-  <tabstop>FilterCaptureCombo</tabstop>
-  <tabstop>CCDCaptureCombo</tabstop>
-  <tabstop>binningCombo</tabstop>
-  <tabstop>startLoopB</tabstop>
-  <tabstop>captureB</tabstop>
-  <tabstop>stopFocusB</tabstop>
-  <tabstop>ISOCombo</tabstop>
   <tabstop>exposureIN</tabstop>
-  <tabstop>FilterPosCombo</tabstop>
-  <tabstop>lockFilterCheck</tabstop>
-  <tabstop>absTicksLabel</tabstop>
-  <tabstop>filterCombo</tabstop>
   <tabstop>focusInB</tabstop>
   <tabstop>focusOutB</tabstop>
+  <tabstop>absTicksLabel</tabstop>
+  <tabstop>absTicksSpin</tabstop>
+  <tabstop>setAbsTicksB</tabstop>
+  <tabstop>startFocusB</tabstop>
+  <tabstop>startLoopB</tabstop>
+  <tabstop>captureB</tabstop>
+  <tabstop>FocusSettleTime</tabstop>
+  <tabstop>stopFocusB</tabstop>
+  <tabstop>CCDCaptureCombo</tabstop>
   <tabstop>focuserCombo</tabstop>
+  <tabstop>toggleFullScreenB</tabstop>
+  <tabstop>showFITSViewerB</tabstop>
+  <tabstop>binningCombo</tabstop>
+  <tabstop>gainIN</tabstop>
+  <tabstop>ISOCombo</tabstop>
+  <tabstop>FilterDevicesCombo</tabstop>
+  <tabstop>FilterPosCombo</tabstop>
+  <tabstop>filterManagerB</tabstop>
+  <tabstop>filterCombo</tabstop>
   <tabstop>resetFrameB</tabstop>
   <tabstop>useAutoStar</tabstop>
   <tabstop>useSubFrame</tabstop>
+  <tabstop>useFullField</tabstop>
   <tabstop>darkFrameCheck</tabstop>
   <tabstop>suspendGuideCheck</tabstop>
   <tabstop>focusBoxSize</tabstop>
@@ -969,20 +991,15 @@ Otherwise, the autofocus process will utilize whatever filter currently set by t
   <tabstop>stepIN</tabstop>
   <tabstop>toleranceIN</tabstop>
   <tabstop>thresholdSpin</tabstop>
-  <tabstop>HFROut</tabstop>
-  <tabstop>clearDataB</tabstop>
-  <tabstop>setAbsTicksB</tabstop>
-  <tabstop>absTicksSpin</tabstop>
-  <tabstop>startFocusB</tabstop>
-  <tabstop>toggleFullScreenB</tabstop>
-  <tabstop>showFITSViewerB</tabstop>
-  <tabstop>gainIN</tabstop>
+  <tabstop>focusAlgorithmCombo</tabstop>
   <tabstop>focusFramesSpin</tabstop>
   <tabstop>focusDetectionCombo</tabstop>
-  <tabstop>focusAlgorithmCombo</tabstop>
+  <tabstop>HFROut</tabstop>
   <tabstop>relativeProfileB</tabstop>
-  <tabstop>useFullField</tabstop>
+  <tabstop>clearDataB</tabstop>
  </tabstops>
- <resources/>
+ <resources>
+  <include location="../../data/kstars.qrc"/>
+ </resources>
  <connections/>
 </ui>

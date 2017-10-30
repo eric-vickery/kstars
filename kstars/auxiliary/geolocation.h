@@ -47,13 +47,13 @@ class GeoLocation
          * @param country the name of the country
          * @param TZ the base time zone offset from Greenwich, UK
          * @param TZrule pointer to the daylight savings time rule
+         * @param elevation the elevation above sea level (in meters)
          * @param readOnly whether the location is read only or updatable.
-         * @param iEllips type of geodetic ellipsoid model
-         * @param hght the elevation above sea level (in meters?)
+         * @param iEllips type of geodetic ellipsoid model         
          */
     GeoLocation(const dms &lng, const dms &lat, const QString &name = "Nowhere", const QString &province = "Nowhere",
                 const QString &country = "Nowhere", double TZ = 0, TimeZoneRule *TZrule = nullptr,
-                bool readOnly = false, int iEllips = 4, double hght = -10);
+                double elevation = -10, bool readOnly = false, int iEllips = 4);
 
     /** Constructor using doubles to specify X, Y and Z referred to the center of the Earth.
          * @param x the x-position, in m
@@ -64,12 +64,13 @@ class GeoLocation
          * @param country the name of the country
          * @param TZ the base time zone offset from Greenwich, UK
          * @param TZrule pointer to the daylight savings time rule
+         * @param elevation the elevation above sea level (in meters)
          * @param readOnly whether the location is read only or updatable.
          * @param iEllips type of geodetic ellipsoid model
          */
     GeoLocation(double x, double y, double z, const QString &name = "Nowhere", const QString &province = "Nowhere",
                 const QString &country = "Nowhere", double TZ = 0, TimeZoneRule *TZrule = nullptr,
-                bool readOnly = false, int iEllips = 4);
+                double elevation = -10, bool readOnly = false, int iEllips = 4);
 
     /** @return pointer to the longitude dms object */
     const CachingDms *lng() const { return &Longitude; }
@@ -78,7 +79,7 @@ class GeoLocation
     const CachingDms *lat() const { return &Latitude; }
 
     /** @return elevation above seal level (meters) */
-    double height() const { return Height; }
+    double elevation() const { return Elevation; }
 
     /** @return X position in m */
     double xPos() const { return PosCartX; }
@@ -155,9 +156,9 @@ class GeoLocation
     /** Set elevation above sea level
          * @param hg the new elevation (meters)
          */
-    void setHeight(double hg)
+    void setElevation(double hg)
     {
-        Height = hg;
+        Elevation = hg;
         geodToCart();
     }
 
@@ -274,7 +275,7 @@ class GeoLocation
     CachingDms Longitude, Latitude;
     QString Name, Province, Country;
     TimeZoneRule *TZrule;
-    double TimeZone, Height;
+    double TimeZone, Elevation;
     double axis, flattening;
     long double PosCartX, PosCartY, PosCartZ;
     int indexEllipsoid;

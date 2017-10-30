@@ -75,14 +75,14 @@ void modCalcGeodCoord::getSphGeoCoords(void)
 {
     geoPlace->setLong(LongGeoBox->createDms());
     geoPlace->setLat(LatGeoBox->createDms());
-    geoPlace->setHeight(AltGeoBox->text().toDouble());
+    geoPlace->setElevation(AltGeoBox->text().toDouble());
 }
 
 void modCalcGeodCoord::slotClearGeoCoords(void)
 {
     geoPlace->setLong(dms(0.0));
     geoPlace->setLat(dms(0.0));
-    geoPlace->setHeight(0.0);
+    geoPlace->setElevation(0.0);
     LatGeoBox->clearFields();
     LongGeoBox->clearFields();
 }
@@ -105,7 +105,7 @@ void modCalcGeodCoord::showSpheGeoCoords(void)
 {
     LongGeoBox->show(geoPlace->lng());
     LatGeoBox->show(geoPlace->lat());
-    AltGeoBox->setText(QLocale().toString(geoPlace->height(), 3));
+    AltGeoBox->setText(QLocale().toString(geoPlace->elevation(), 3));
 }
 
 void modCalcGeodCoord::showCartGeoCoords(void)
@@ -339,7 +339,7 @@ void modCalcGeodCoord::processLines(QTextStream &istream)
             geoPl.setXPos(xB * 1000.0);
             geoPl.setYPos(yB * 1000.0);
             geoPl.setZPos(zB * 1000.0);
-            ostream << geoPl.lng()->toDMSString() << space << geoPl.lat()->toDMSString() << space << geoPl.height()
+            ostream << geoPl.lng()->toDMSString() << space << geoPl.lat()->toDMSString() << space << geoPl.elevation()
                     << endl;
 
             // Input coords. are Long, Lat and Height
@@ -393,7 +393,7 @@ void modCalcGeodCoord::processLines(QTextStream &istream)
 
             geoPl.setLong(longB);
             geoPl.setLat(latB);
-            geoPl.setHeight(hB);
+            geoPl.setElevation(hB);
 
             ostream << geoPl.xPos() / 1000.0 << space << geoPl.yPos() / 1000.0 << space << geoPl.zPos() / 1000.0
                     << endl;

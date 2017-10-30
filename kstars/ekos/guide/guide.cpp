@@ -728,10 +728,17 @@ bool Guide::captureOneFrame()
     connect(currentCCD, SIGNAL(BLOBUpdated(IBLOB*)), this, SLOT(newFITS(IBLOB*)), Qt::UniqueConnection);
     qCDebug(KSTARS_EKOS_GUIDE) << "Capturing frame...";
 
-    // Timeout is exposure duration + timeout threshold in seconds
-    captureTimeout.start(seqExpose * 1000 + CAPTURE_TIMEOUT_THRESHOLD);
+    double finalExposure = seqExpose;
 
-    targetChip->capture(seqExpose);
+    // Increase exposure for calibration frame if we need auto-select a star
+    // To increase chances we detect one.
+    if (operationStack.contains(GUIDE_STAR_SELECT) && Options::guideAutoStarEnabled())
+        finalExposure *= 3;
+
+    // Timeout is exposure duration + timeout threshold in seconds
+    captureTimeout.start(finalExposure * 1000 + CAPTURE_TIMEOUT_THRESHOLD);
+
+    targetChip->capture(finalExposure);
 
     return true;
 }
@@ -1194,6 +1201,9 @@ void Guide::setCaptureStatus(CaptureState newState)
 
 void Guide::setMountStatus(ISD::Telescope::TelescopeStatus newState)
 {
+    if (guiderType != GUIDE_INTERNAL)
+        return;
+
     switch (newState)
     {
         case ISD::Telescope::MOUNT_SLEWING:
@@ -1342,6 +1352,7 @@ void Guide::setStatus(Ekos::GuideState newState)
             captureB->setEnabled(false);
             loopB->setEnabled(false);
             setBLOBEnabled(true);
+            setBusy(false);
             break;
 
         case GUIDE_CALIBRATION_SUCESS:
@@ -1357,6 +1368,7 @@ void Guide::setStatus(Ekos::GuideState newState)
             break;
 
         case GUIDE_CALIBRATION_ERROR:
+        case GUIDE_IDLE:
             setBusy(false);
             break;
 
@@ -1708,99 +1720,127 @@ void Guide::updateTrackingBoxSize(int currentIndex)
 
 bool Guide::selectAutoStar()
 {
-    if (currentCCD == nullptr)
+    if (currentCCD == nullptr || guiderType != GUIDE_INTERNAL)
         return false;
 
-    ISD::CCDChip *targetChip = currentCCD->getChip(useGuideHead ? ISD::CCDChip::GUIDE_CCD : ISD::CCDChip::PRIMARY_CCD);
 
-    if (targetChip == nullptr)
-        return false;
+        ISD::CCDChip *targetChip = currentCCD->getChip(useGuideHead ? ISD::CCDChip::GUIDE_CCD : ISD::CCDChip::PRIMARY_CCD);
 
-    FITSView *targetImage = targetChip->getImageView(FITS_GUIDE);
+        if (targetChip == nullptr)
+            return false;
 
-    if (targetImage == nullptr)
-        return false;
+        FITSView *targetImage = targetChip->getImageView(FITS_GUIDE);
 
-    FITSData *imageData = targetImage->getImageData();
+        if (targetImage == nullptr)
+            return false;
 
-    if (imageData == nullptr)
-        return false;
+        FITSData *imageData = targetImage->getImageData();
 
-    imageData->findStars();
+        if (imageData == nullptr)
+            return false;
 
-    QList<Edge *> starCenters = imageData->getStarCenters();
+        bool useNativeDetection = false;
 
-    if (starCenters.empty())
-        return false;
+        QList<Edge *> starCenters = internalGuider->getGuideStars();
 
-    guideView->setStarsEnabled(true);
-    guideView->updateFrame();
-
-    qSort(starCenters.begin(), starCenters.end(), [](const Edge *a, const Edge *b) { return a->width > b->width; });
-
-    int maxX = imageData->getWidth();
-    int maxY = imageData->getHeight();
-
-    int scores[MAX_GUIDE_STARS];
-
-    int maxIndex = MAX_GUIDE_STARS < starCenters.count() ? MAX_GUIDE_STARS : starCenters.count();
-
-    for (int i = 0; i < maxIndex; i++)
-    {
-        int score = 100;
-
-        Edge *center = starCenters.at(i);
-
-        //qDebug() << "#" << i << " X: " << center->x << " Y: " << center->y << " HFR: " << center->HFR << " Width" << center->width;
-
-        // Severely reject stars close to edges
-        if (center->x < (center->width * 5) || center->y < (center->width * 5) ||
-            center->x > (maxX - center->width * 5) || center->y > (maxY - center->width * 5))
-            score -= 50;
-
-        // Moderately favor brighter stars
-        score += center->width * center->width;
-
-        // Moderately reject stars close to other stars
-        foreach (Edge *edge, starCenters)
+        if (starCenters.empty())
         {
-            if (edge == center)
-                continue;
+            imageData->findStars();
+            starCenters = imageData->getStarCenters();
+            if (starCenters.empty())
+                return false;
 
-            if (abs(center->x - edge->x) < center->width * 2 && abs(center->y - edge->y) < center->width * 2)
+            useNativeDetection = true;
+            qSort(starCenters.begin(), starCenters.end(), [](const Edge *a, const Edge *b) { return a->width > b->width; });
+
+            guideView->setStarsEnabled(true);
+            guideView->updateFrame();
+        }
+
+        int subBinX, subBinY;
+        targetChip->getBinning(&subBinX, &subBinY);
+
+        int maxX = imageData->getWidth();
+        int maxY = imageData->getHeight();
+
+        int scores[MAX_GUIDE_STARS];
+
+        int maxIndex = MAX_GUIDE_STARS < starCenters.count() ? MAX_GUIDE_STARS : starCenters.count();
+
+        for (int i = 0; i < maxIndex; i++)
+        {
+            int score = 100;
+
+            Edge *center = starCenters.at(i);
+
+            if (useNativeDetection)
             {
-                score -= 15;
-                break;
+                // Severely reject stars close to edges
+                if (center->x < (center->width * 5) || center->y < (center->width * 5) ||
+                    center->x > (maxX - center->width * 5) || center->y > (maxY - center->width * 5))
+                    score -= 1000;
+
+                // Reject stars bigger than square
+                if (center->width > boxSizeCombo->currentText().toInt() / subBinX)
+                    score -= 1000;
+                else
+                    // Moderately favor brighter stars
+                    score += center->width * center->width;
+
+                // Moderately reject stars close to other stars
+                foreach (Edge *edge, starCenters)
+                {
+                    if (edge == center)
+                        continue;
+
+                    if (abs(center->x - edge->x) < center->width * 2 && abs(center->y - edge->y) < center->width * 2)
+                    {
+                        score -= 15;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                score = center->val;
+            }
+
+            scores[i] = score;
+        }
+
+        int maxScore      = -1;
+        int maxScoreIndex = -1;
+        for (int i = 0; i < maxIndex; i++)
+        {
+            if (scores[i] > maxScore)
+            {
+                maxScore      = scores[i];
+                maxScoreIndex = i;
             }
         }
 
-        scores[i] = score;
-    }
-
-    int maxScore      = 0;
-    int maxScoreIndex = 0;
-    for (int i = 0; i < maxIndex; i++)
-    {
-        if (scores[i] > maxScore)
+        if (maxScoreIndex < 0)
         {
-            maxScore      = scores[i];
-            maxScoreIndex = i;
+            qCDebug(KSTARS_EKOS_GUIDE) << "No suitable star detected.";
+            return false;
         }
-    }
 
-    /*if (ui.autoSquareSizeCheck->isEnabled() && ui.autoSquareSizeCheck->isChecked())
-    {
-        // Select appropriate square size
-        int idealSize = ceil(starCenters[maxScoreIndex]->width * 1.5);
+        /*if (ui.autoSquareSizeCheck->isEnabled() && ui.autoSquareSizeCheck->isChecked())
+        {
+            // Select appropriate square size
+            int idealSize = ceil(starCenters[maxScoreIndex]->width * 1.5);
 
-        if (Options::guideLogging())
-            qDebug() << "Guide: Ideal calibration box size for star width: " << starCenters[maxScoreIndex]->width << " is " << idealSize << " pixels";
+            if (Options::guideLogging())
+                qDebug() << "Guide: Ideal calibration box size for star width: " << starCenters[maxScoreIndex]->width << " is " << idealSize << " pixels";
 
-        // TODO Set square size in GuideModule
-    }*/
+            // TODO Set square size in GuideModule
+        }*/
 
-    QVector3D newStarCenter(starCenters[maxScoreIndex]->x, starCenters[maxScoreIndex]->y, 0);
-    setStarPosition(newStarCenter, false);
+        QVector3D newStarCenter(starCenters[maxScoreIndex]->x, starCenters[maxScoreIndex]->y, 0);
+        setStarPosition(newStarCenter, false);
+
+        if (useNativeDetection == false)
+            qDeleteAll(starCenters);
 
     return true;
 }
@@ -2062,6 +2102,7 @@ void Guide::setAxisSigma(double ra, double de)
 {
     l_ErrRA->setText(QString::number(ra, 'f', 2));
     l_ErrDEC->setText(QString::number(de, 'f', 2));
+    l_TotalRMS->setText(QString::number(sqrt(ra*ra+de*de), 'f', 2));
     emit sigmasUpdated(ra, de);
 }
 
@@ -2379,6 +2420,7 @@ bool Guide::executeOneOperation(GuideState operation)
                 else
                 {
                     appendLogText(i18n("Failed to select an auto star."));
+                    actionRequired = true;
                     state = GUIDE_CALIBRATION_ERROR;
                     emit newStatus(state);
                     setBusy(false);

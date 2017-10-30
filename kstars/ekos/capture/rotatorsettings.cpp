@@ -9,8 +9,9 @@
 
 
 #include "rotatorsettings.h"
-
-#include <QDebug>
+#include "Options.h"
+#include "fov.h"
+#include "kstarsdata.h"
 
 #include <indicom.h>
 #include <basedevice.h>
@@ -24,40 +25,51 @@ RotatorSettings::RotatorSettings(QWidget *parent) : QDialog(parent)
     rotatorGauge->setMinimum(0);
     rotatorGauge->setMaximum(360);
 
-    connect(ticksSlider, SIGNAL(valueChanged(int)), ticksSpin, SLOT(setValue(int)));
     connect(angleSlider, &QSlider::valueChanged, this, [this](int angle){angleSpin->setValue(angle);});
 
-    connect(setTickB, SIGNAL(clicked()), this, SLOT(gotoTicks()));
     connect(setAngleB, SIGNAL(clicked()), this, SLOT(gotoAngle()));
 
-    connect(plannedTicksSpin, &QSpinBox::editingFinished, this, [this]() { enforceRotationCheck->setChecked(true);});
+    PAMulSpin->setValue(Options::pAMultiplier());
+    PAOffsetSpin->setValue(Options::pAOffset());
+
+    connect(setPAB, SIGNAL(clicked()), this, SLOT(setPA()));
+
+    syncFOVPA->setChecked(Options::syncFOVPA());
+    connect(syncFOVPA, &QCheckBox::toggled, [this](bool toggled)
+    {
+        Options::setSyncFOVPA(toggled);
+        if (toggled) syncPA(targetPASpin->value());
+    });
+
+    connect(enforceRotationCheck, SIGNAL(toggled(bool)), targetPASpin, SLOT(setEnabled(bool)));
+    connect(targetPASpin, SIGNAL(valueChanged(double)), this, SLOT(syncPA(double)));    
+    connect(PAMulSpin, &QSpinBox::editingFinished, this, [this]()
+    {
+        Options::setPAMultiplier(PAMulSpin->value());
+        updatePA();
+    }
+    );
+    connect(PAOffsetSpin, &QSpinBox::editingFinished, this, [this]()
+    {
+        Options::setPAOffset(PAOffsetSpin->value());
+        updatePA();
+    });           
 }
 
 void RotatorSettings::setRotator(ISD::GDInterface *rotator)
 {
     currentRotator = rotator;
+
+    connect(currentRotator, &ISD::GDInterface::propertyDefined, [&](INDI::Property *prop)
+        {
+            if (!strcmp(prop->getName(), "ABS_ROTATOR_ANGLE"))
+            {
+                INumberVectorProperty *absAngle = prop->getNumber();
+                setCurrentAngle(absAngle->np[0].value);
+            }
+        });
 }
 
-void RotatorSettings::setTicksMinMaxStep(int32_t min, int32_t max, int32_t step)
-{
-    ticksSlider->setMinimum(min);
-    ticksSlider->setMaximum(max);
-    ticksSlider->setSingleStep(step);
-
-    ticksSpin->setMinimum(min);
-    ticksSpin->setMaximum(max);
-    ticksSpin->setSingleStep(step);
-
-    plannedTicksSpin->setMinimum(min);
-    plannedTicksSpin->setMaximum(max);
-    plannedTicksSpin->setSingleStep(step);
-}
-
-void RotatorSettings::gotoTicks()
-{
-    int32_t ticks = ticksSpin->value();
-    currentRotator->runCommand(INDI_SET_ROTATOR_TICKS, &ticks);
-}
 
 void RotatorSettings::gotoAngle()
 {
@@ -65,13 +77,56 @@ void RotatorSettings::gotoAngle()
     currentRotator->runCommand(INDI_SET_ROTATOR_ANGLE, &angle);
 }
 
-void RotatorSettings::setCurrentTicks(int32_t ticks)
-{
-    ticksEdit->setText(QString::number(ticks));
-}
-
 void RotatorSettings::setCurrentAngle(double angle)
 {
-    angleEdit->setText(QString::number(angle, 'f', 2));
+    angleEdit->setText(QString::number(angle, 'f', 3));
+    rawAngle->setText(QString::number(angle, 'f', 3));
     rotatorGauge->setValue(angle);
+    updatePA();
+}
+
+void RotatorSettings::updatePA()
+{
+    double PA = rotatorGauge->value() * PAMulSpin->value() + PAOffsetSpin->value();
+    // Limit PA to -180 to +180
+    if (PA > 180)
+        PA -= 360;
+    if (PA < -180)
+        PA += 360;
+
+    //PASpin->setValue(PA);
+    PAOut->setText(QString::number(PA, 'f', 3));
+}
+
+void RotatorSettings::refresh()
+{
+    PAMulSpin->setValue(Options::pAMultiplier());
+    PAOffsetSpin->setValue(Options::pAOffset());
+    updatePA();
+}
+
+void RotatorSettings::syncPA(double PA)
+{
+    if (syncFOVPA->isChecked())
+    {
+        for (FOV* fov : KStarsData::Instance()->getVisibleFOVs())
+        {
+            fov->setPA(PA);
+        }
+    }
+}
+
+void RotatorSettings::setPA()
+{
+   // PA = RawAngle * Multiplier + Offset
+   double rawAngle = (PASpin->value() - PAOffsetSpin->value()) / PAMulSpin->value();
+   // Get raw angle (0 to 360) from PA (-180 to +180)
+   if (rawAngle < 0)
+       rawAngle += 360;
+   else if (rawAngle > 360)
+       rawAngle -= 360;
+
+   //angleEdit->setText(QString::number(rawAngle, 'f', 3));
+   angleSpin->setValue(rawAngle);
+   gotoAngle();
 }

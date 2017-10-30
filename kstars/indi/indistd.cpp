@@ -178,6 +178,7 @@ void GenericDevice::processNumber(INumberVectorProperty *nvp)
     {
         // Update KStars Location once we receive update from INDI, if the source is set to DEVICE
         dms lng, lat;
+        double elev=0;
         INumber *np = nullptr;
 
         np = IUFindNumber(nvp, "LONG");
@@ -196,10 +197,23 @@ void GenericDevice::processNumber(INumberVectorProperty *nvp)
 
         lat.setD(np->value);
 
+        np = IUFindNumber(nvp, "ELEV");
+        if (np)
+            elev = np->value;
+
         GeoLocation *geo = KStars::Instance()->data()->geo();
 
-        geo->setLong(lng);
-        geo->setLat(lat);
+        if (geo->name() != i18n("GPS Location"))
+        {
+            double TZ = geo->TZ();
+            geo = new GeoLocation(lng, lat, i18n("GPS Location"), "", "", TZ, new TimeZoneRule(), elev);
+        }
+        else
+        {
+            geo->setLong(lng);
+            geo->setLat(lat);
+        }
+
         KStars::Instance()->data()->setLocation(*geo);
     }
     else if (!strcmp(nvp->name, "WATCHDOG_HEARTBEAT"))
@@ -296,7 +310,7 @@ void GenericDevice::processBLOB(IBLOB *bp)
 
     QString ts = QDateTime::currentDateTime().toString("yyyy-MM-ddThh-mm-ss");
 
-    filename += QString("file_") + ts + QString(bp->format).trimmed();
+    filename += QString("%1_").arg(bp->label) + ts + QString(bp->format).trimmed();
 
     strncpy(BLOBFilename, filename.toLatin1(), MAXINDIFILENAME);
     bp->aux2 = BLOBFilename;
@@ -477,6 +491,12 @@ void GenericDevice::updateLocation()
         return;
 
     np->value = geo->lat()->Degrees();
+
+    np = IUFindNumber(nvp, "ELEV");
+    if (np == nullptr)
+        return;
+
+    np->value = geo->elevation();
 
     clientManager->sendNewNumber(nvp);
 }

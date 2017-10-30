@@ -15,10 +15,12 @@
 #include "Options.h"
 #include "fitsviewer/fitsdata.h"
 #include "fitsviewer/fitsview.h"
+#include "auxiliary/kspaths.h"
 
 #include "ekos_guide_debug.h"
 
 #include <cmath>
+#include <set>
 
 #define DEF_SQR_0 (8 - 0)
 #define DEF_SQR_1 (16 - 0)
@@ -37,6 +39,17 @@ const square_alg_t guide_square_alg[] = { { SMART_THRESHOLD, "Smart" },
                                           { AUTO_THRESHOLD, "Auto" },
                                           { NO_THRESHOLD, "No thresh." },
                                           { -1, { 0 } } };
+
+struct Peak
+{
+    int x;
+    int y;
+    float val;
+
+    Peak() { }
+    Peak(int x_, int y_, float val_) : x(x_), y(y_), val(val_) { }
+    bool operator<(const Peak& rhs) const { return val < rhs.val; }
+};
 
 // JM: Why not use QPoint?
 typedef struct
@@ -69,6 +82,9 @@ cgmath::cgmath() : QObject()
     memset(drift[GUIDE_RA], 0, sizeof(double) * MAX_ACCUM_CNT);
     memset(drift[GUIDE_DEC], 0, sizeof(double) * MAX_ACCUM_CNT);
     drift_integral[GUIDE_RA] = drift_integral[GUIDE_DEC] = 0;
+
+    QString logFileName = KSPaths::writableLocation(QStandardPaths::GenericDataLocation) + "guide_log.txt";
+    logFile.setFileName(logFileName);
 }
 
 cgmath::~cgmath()
@@ -133,6 +149,23 @@ void cgmath::getGuiderParameters(double *ccd_pix_wd, double *ccd_pix_ht, double 
     *ccd_pix_ht      = ccd_pixel_height * 1000.0;
     *guider_aperture = aperture;
     *guider_focal    = focal;
+}
+
+void cgmath::createGuideLog()
+{
+    logFile.close();
+    logFile.open(QIODevice::WriteOnly | QIODevice::Text);
+    QTextStream out(&logFile);
+
+    out << "Guiding rate,x15 arcsec/sec: " << Options::guidingRate() << endl;
+    out << "Focal,mm: " << focal << endl;
+    out << "Aperture,mm: " << aperture << endl;
+    out << "F/D: " << focal / aperture << endl;
+    out << "Frame #, Time Elapsed (ms), RA Error (arcsec), RA Correction (ms), RA Correction Direction, DEC Error "
+           "(arcsec), DEC Correction (ms), DEC Correction Direction"
+        << endl;
+
+    logTime.restart();
 }
 
 bool cgmath::setReticleParameters(double x, double y, double ang)
@@ -299,7 +332,7 @@ Vector cgmath::point2arcsec(const Vector &p) const
     return arcs;
 }
 
-bool cgmath::calculateAndSetReticle1D(double start_x, double start_y, double end_x, double end_y, int totalPulse)
+bool cgmath::calculateAndSetReticle1D(double start_x, double start_y, double end_x, double end_y, int RATotalPulse)
 {
     double phi;
 
@@ -310,13 +343,14 @@ bool cgmath::calculateAndSetReticle1D(double start_x, double start_y, double end
 
     setReticleParameters(start_x, start_y, phi);
 
-    if (totalPulse > 0)
+    if (RATotalPulse > 0)
     {
         double x   = end_x - start_x;
         double y   = end_y - start_y;
         double len = sqrt(x * x + y * y);
 
-        ditherRate[GUIDE_RA] = totalPulse / len;
+        // Total pulse includes start --> end --> start
+        ditherRate[GUIDE_RA] = RATotalPulse / (2 * len);
 
         qCDebug(KSTARS_EKOS_GUIDE) << "Dither RA Rate " << ditherRate[GUIDE_RA] << " ms/Pixel";
     }
@@ -326,7 +360,7 @@ bool cgmath::calculateAndSetReticle1D(double start_x, double start_y, double end
 
 bool cgmath::calculateAndSetReticle2D(double start_ra_x, double start_ra_y, double end_ra_x, double end_ra_y,
                                       double start_dec_x, double start_dec_y, double end_dec_x, double end_dec_y,
-                                      bool *swap_dec, int totalPulse)
+                                      bool *swap_dec, int RATotalPulse, int DETotalPulse)
 {
     double phi_ra  = 0; // angle calculated by GUIDE_RA drift
     double phi_dec = 0; // angle calculated by GUIDE_DEC drift
@@ -380,21 +414,24 @@ bool cgmath::calculateAndSetReticle2D(double start_ra_x, double start_ra_y, doub
 
     setReticleParameters(start_ra_x, start_ra_y, phi);
 
-    if (totalPulse > 0)
+    if (RATotalPulse > 0)
     {
         double x   = end_ra_x - start_ra_x;
         double y   = end_ra_y - start_ra_y;
         double len = sqrt(x * x + y * y);
 
-        ditherRate[GUIDE_RA] = totalPulse / len;
+        ditherRate[GUIDE_RA] = RATotalPulse / (2 * len);
 
         qCDebug(KSTARS_EKOS_GUIDE) << "Dither RA Rate " << ditherRate[GUIDE_RA] << " ms/Pixel";
+    }
 
-        x   = end_dec_x - start_dec_x;
-        y   = end_dec_y - start_dec_y;
-        len = sqrt(x * x + y * y);
+    if (DETotalPulse > 0)
+    {
+        double x   = end_dec_x - start_dec_x;
+        double y   = end_dec_y - start_dec_y;
+        double len = sqrt(x * x + y * y);
 
-        ditherRate[GUIDE_DEC] = totalPulse / len;
+        ditherRate[GUIDE_DEC] = DETotalPulse / (2 * len);
 
         qCDebug(KSTARS_EKOS_GUIDE) << "Dither DEC Rate " << ditherRate[GUIDE_DEC] << " ms/Pixel";
     }
@@ -466,6 +503,9 @@ void cgmath::start(void)
 
     preview_mode = false;
 
+    if (focal > 0 && aperture > 0)
+        createGuideLog();
+
     // Create reference Image
     if (imageGuideEnabled)
     {
@@ -505,9 +545,11 @@ void cgmath::setLostStar(bool is_lost)
     lost_star = is_lost;
 }
 
-float *cgmath::createFloatImage() const
+float *cgmath::createFloatImage(FITSData *target) const
 {
-    FITSData *imageData = guideView->getImageData();
+    FITSData *imageData = target;
+    if (imageData == nullptr)
+        imageData = guideView->getImageData();
 
     // #1 Convert to float array
     // We only process 1st plane if it is a color image
@@ -1210,10 +1252,13 @@ void cgmath::process_axes(void)
 
     //emit newAxisDelta(out_params.delta[0], out_params.delta[1]);
 
-    QTextStream out(logFile);
-    out << ticks << "," << logTime.elapsed() << "," << out_params.delta[0] << "," << out_params.pulse_length[0] << ","
-        << get_direction_string(out_params.pulse_dir[0]) << "," << out_params.delta[1] << ","
-        << out_params.pulse_length[1] << "," << get_direction_string(out_params.pulse_dir[1]) << endl;
+    if (Options::guideLogging())
+    {
+        QTextStream out(&logFile);
+        out << ticks << "," << logTime.elapsed() << "," << out_params.delta[0] << "," << out_params.pulse_length[0] << ","
+            << get_direction_string(out_params.pulse_dir[0]) << "," << out_params.delta[1] << ","
+            << out_params.pulse_length[1] << "," << get_direction_string(out_params.pulse_dir[1]) << endl;
+    }
 }
 
 void cgmath::performProcessing(void)
@@ -1324,12 +1369,6 @@ void cgmath::setRapidStarData(double dx, double dy)
     rapidDY = dy;
 }
 
-void cgmath::setLogFile(QFile *file)
-{
-    logFile = file;
-    logTime.restart();
-}
-
 const char *cgmath::get_direction_string(GuideDirection dir)
 {
     switch (dir)
@@ -1366,6 +1405,336 @@ void cgmath::setImageGuideEnabled(bool value)
 {
     imageGuideEnabled = value;
 }
+
+static void psf_conv(float *dst, const float *src, int width, int height)
+{
+    //dst.Init(src.Size);
+
+    //                       A      B1     B2    C1     C2    C3     D1     D2     D3
+    const double PSF[] = { 0.906, 0.584, 0.365, .117, .049, -0.05, -.064, -.074, -.094 };
+
+    //memset(dst.px, 0, src.NPixels * sizeof(float));
+
+    /* PSF Grid is:
+    D3 D3 D3 D3 D3 D3 D3 D3 D3
+    D3 D3 D3 D2 D1 D2 D3 D3 D3
+    D3 D3 C3 C2 C1 C2 C3 D3 D3
+    D3 D2 C2 B2 B1 B2 C2 D2 D3
+    D3 D1 C1 B1 A  B1 C1 D1 D3
+    D3 D2 C2 B2 B1 B2 C2 D2 D3
+    D3 D3 C3 C2 C1 C2 C3 D3 D3
+    D3 D3 D3 D2 D1 D2 D3 D3 D3
+    D3 D3 D3 D3 D3 D3 D3 D3 D3
+
+    1@A
+    4@B1, B2, C1, C3, D1
+    8@C2, D2
+    44 * D3
+    */
+
+    int psf_size = 4;
+
+    for (int y = psf_size; y < height - psf_size; y++)
+    {
+        for (int x = psf_size; x < width - psf_size; x++)
+        {
+            float A, B1, B2, C1, C2, C3, D1, D2, D3;
+
+#define PX(dx, dy) *(src + width * (y + (dy)) + x + (dx))
+            A =  PX(+0, +0);
+            B1 = PX(+0, -1) + PX(+0, +1) + PX(+1, +0) + PX(-1, +0);
+            B2 = PX(-1, -1) + PX(+1, -1) + PX(-1, +1) + PX(+1, +1);
+            C1 = PX(+0, -2) + PX(-2, +0) + PX(+2, +0) + PX(+0, +2);
+            C2 = PX(-1, -2) + PX(+1, -2) + PX(-2, -1) + PX(+2, -1) + PX(-2, +1) + PX(+2, +1) + PX(-1, +2) + PX(+1, +2);
+            C3 = PX(-2, -2) + PX(+2, -2) + PX(-2, +2) + PX(+2, +2);
+            D1 = PX(+0, -3) + PX(-3, +0) + PX(+3, +0) + PX(+0, +3);
+            D2 = PX(-1, -3) + PX(+1, -3) + PX(-3, -1) + PX(+3, -1) + PX(-3, +1) + PX(+3, +1) + PX(-1, +3) + PX(+1, +3);
+            D3 = PX(-4, -2) + PX(-3, -2) + PX(+3, -2) + PX(+4, -2) + PX(-4, -1) + PX(+4, -1) + PX(-4, +0) + PX(+4, +0) + PX(-4, +1) + PX(+4, +1) + PX(-4, +2) + PX(-3, +2) + PX(+3, +2) + PX(+4, +2);
+#undef PX
+            int i;
+            const float *uptr;
+
+            uptr = src + width * (y - 4) + (x - 4);
+            for (i = 0; i < 9; i++)
+                D3 += *uptr++;
+
+            uptr = src + width * (y - 3) + (x - 4);
+            for (i = 0; i < 3; i++)
+                D3 += *uptr++;
+            uptr += 3;
+            for (i = 0; i < 3; i++)
+                D3 += *uptr++;
+
+            uptr = src + width * (y + 3) + (x - 4);
+            for (i = 0; i < 3; i++)
+                D3 += *uptr++;
+            uptr += 3;
+            for (i = 0; i < 3; i++)
+                D3 += *uptr++;
+
+            uptr = src + width * (y + 4) + (x - 4);
+            for (i = 0; i < 9; i++)
+                D3 += *uptr++;
+
+            double mean = (A + B1 + B2 + C1 + C2 + C3 + D1 + D2 + D3) / 81.0;
+            double PSF_fit = PSF[0] * (A - mean) + PSF[1] * (B1 - 4.0 * mean) + PSF[2] * (B2 - 4.0 * mean) +
+                PSF[3] * (C1 - 4.0 * mean) + PSF[4] * (C2 - 8.0 * mean) + PSF[5] * (C3 - 4.0 * mean) +
+                PSF[6] * (D1 - 4.0 * mean) + PSF[7] * (D2 - 8.0 * mean) + PSF[8] * (D3 - 44.0 * mean);
+
+            dst[width * y + x] = (float) PSF_fit;
+        }
+    }
+}
+
+static void GetStats(double *mean, double *stdev, int width, const float *img, const QRect& win)
+{
+    // Determine the mean and standard deviation
+    double sum = 0.0;
+    double a = 0.0;
+    double q = 0.0;
+    double k = 1.0;
+    double km1 = 0.0;
+
+    const float *p0 = img + win.top() * width + win.left();
+    for (int y = 0; y < win.height(); y++)
+    {
+        const float *end = p0 + win.height();
+        for (const float *p = p0; p < end; p++)
+        {
+            double const x = (double) *p;
+            sum += x;
+            double const a0 = a;
+            a += (x - a) / k;
+            q += (x - a0) * (x - a);
+            km1 = k;
+            k += 1.0;
+        }
+        p0 += width;
+    }
+
+    *mean = sum / km1;
+    *stdev = sqrt(q / km1);
+}
+
+static void RemoveItems(std::set<Peak>& stars, const std::set<int>& to_erase)
+{
+    int n = 0;
+    for (std::set<Peak>::iterator it = stars.begin(); it != stars.end(); n++)
+    {
+        if (to_erase.find(n) != to_erase.end())
+        {
+            std::set<Peak>::iterator next = it;
+            ++next;
+            stars.erase(it);
+            it = next;
+        }
+        else
+            ++it;
+    }
+}
+
+// Based on PHD2 algorithm
+QList<Edge*> cgmath::PSFAutoFind(int extraEdgeAllowance)
+{
+    //Debug.Write(wxString::Format("Star::AutoFind called with edgeAllowance = %d searchRegion = %d\n", extraEdgeAllowance, searchRegion));
+
+    // run a 3x3 median first to eliminate hot pixels
+    //usImage smoothed;
+    //smoothed.CopyFrom(image);
+    //Median3(smoothed);
+    FITSData *smoothed = new FITSData(guideView->getImageData());
+    smoothed->applyFilter(FITS_MEDIAN);
+
+    int searchRegion = guideView->getTrackingBox().width();
+
+    int subW = smoothed->getWidth();
+    int subH = smoothed->getHeight();
+
+    // convert to floating point
+    float *conv = createFloatImage(smoothed);
+
+    // run the PSF convolution
+    {
+        float *tmp = new float[smoothed->getSize()];
+        memset(tmp, 0, smoothed->getSize()*sizeof(float));
+        psf_conv(tmp, conv, subW, subH);
+        delete [] conv;
+        // Swap
+        conv = tmp;
+    }
+
+    enum { CONV_RADIUS = 4 };
+    int dw = subW;      // width of the downsampled image
+    int dh = subH;     // height of the downsampled image
+    QRect convRect(CONV_RADIUS, CONV_RADIUS, dw - 2 * CONV_RADIUS, dh - 2 * CONV_RADIUS);  // region containing valid data
+
+    enum { TOP_N = 100 };  // keep track of the brightest stars
+    std::set<Peak> stars;  // sorted by ascending intensity
+
+    double global_mean, global_stdev;
+    GetStats(&global_mean, &global_stdev, subW, conv, convRect);
+
+    //Debug.Write(wxString::Format("AutoFind: global mean = %.1f, stdev %.1f\n", global_mean, global_stdev));
+
+    const double threshold = 0.1;
+    //Debug.Write(wxString::Format("AutoFind: using threshold = %.1f\n", threshold));
+
+    // find each local maximum
+    int srch = 4;
+    for (int y = convRect.top() + srch; y <= convRect.bottom() - srch; y++)
+    {
+        for (int x = convRect.left() + srch; x <= convRect.right() - srch; x++)
+        {
+            float val = conv[dw * y + x];
+            bool ismax = false;
+            if (val > 0.0)
+            {
+                ismax = true;
+                for (int j = -srch; j <= srch; j++)
+                {
+                    for (int i = -srch; i <= srch; i++)
+                    {
+                        if (i == 0 && j == 0)
+                            continue;
+                        if (conv[dw * (y + j) + (x + i)] > val)
+                        {
+                            ismax = false;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!ismax)
+                continue;
+
+            // compare local maximum to mean value of surrounding pixels
+            const int local = 7;
+            double local_mean, local_stdev;
+            QRect localRect(x - local, y - local, 2 * local + 1, 2 * local + 1);
+            localRect = localRect.intersected(convRect);
+            GetStats(&local_mean, &local_stdev, subW, conv, localRect);
+
+            // this is our measure of star intensity
+            double h = (val - local_mean) / global_stdev;
+
+            if (h < threshold)
+            {
+                //  Debug.Write(wxString::Format("AG: local max REJECT [%d, %d] PSF %.1f SNR %.1f\n", imgx, imgy, val, SNR));
+                continue;
+            }
+
+            // coordinates on the original image
+            int downsample =1;
+            int imgx = x * downsample + downsample / 2;
+            int imgy = y * downsample + downsample / 2;
+
+            stars.insert(Peak(imgx, imgy, h));
+            if (stars.size() > TOP_N)
+                stars.erase(stars.begin());
+        }
+    }
+
+    //for (std::set<Peak>::const_reverse_iterator it = stars.rbegin(); it != stars.rend(); ++it)
+        //qCDebug(KSTARS_EKOS_GUIDE) << "AutoFind: local max [" << it->x << "," << it->y << "]" << it->val;
+
+    // merge stars that are very close into a single star
+    {
+        const int minlimitsq = 5 * 5;
+    repeat:
+        for (std::set<Peak>::const_iterator a = stars.begin(); a != stars.end(); ++a)
+        {
+            std::set<Peak>::const_iterator b = a;
+            ++b;
+            for (; b != stars.end(); ++b)
+            {
+                int dx = a->x - b->x;
+                int dy = a->y - b->y;
+                int d2 = dx * dx + dy * dy;
+                if (d2 < minlimitsq)
+                {
+                    // very close, treat as single star
+                    //Debug.Write(wxString::Format("AutoFind: merge [%d, %d] %.1f - [%d, %d] %.1f\n", a->x, a->y, a->val, b->x, b->y, b->val));
+                    // erase the dimmer one
+                    stars.erase(a);
+                    goto repeat;
+                }
+            }
+        }
+    }
+
+    // exclude stars that would fit within a single searchRegion box
+    {
+        // build a list of stars to be excluded
+        std::set<int> to_erase;
+        const int extra = 5; // extra safety margin
+        const int fullw = searchRegion + extra;
+        for (std::set<Peak>::const_iterator a = stars.begin(); a != stars.end(); ++a)
+        {
+            std::set<Peak>::const_iterator b = a;
+            ++b;
+            for (; b != stars.end(); ++b)
+            {
+                int dx = abs(a->x - b->x);
+                int dy = abs(a->y - b->y);
+                if (dx <= fullw && dy <= fullw)
+                {
+                    // stars closer than search region, exclude them both
+                    // but do not let a very dim star eliminate a very bright star
+                    if (b->val / a->val >= 5.0)
+                    {
+                        //Debug.Write(wxString::Format("AutoFind: close dim-bright [%d, %d] %.1f - [%d, %d] %.1f\n", a->x, a->y, a->val, b->x, b->y, b->val));
+                    }
+                    else
+                    {
+                        //Debug.Write(wxString::Format("AutoFind: too close [%d, %d] %.1f - [%d, %d] %.1f\n", a->x, a->y, a->val, b->x, b->y, b->val));
+                        to_erase.insert(std::distance(stars.begin(), a));
+                        to_erase.insert(std::distance(stars.begin(), b));
+                    }
+                }
+            }
+        }
+        RemoveItems(stars, to_erase);
+    }
+
+    // exclude stars too close to the edge
+    {
+        enum { MIN_EDGE_DIST = 40 };
+        int edgeDist = MIN_EDGE_DIST;//pConfig->Profile.GetInt("/StarAutoFind/MinEdgeDist", MIN_EDGE_DIST);
+        if (edgeDist < searchRegion)
+            edgeDist = searchRegion;
+        edgeDist += extraEdgeAllowance;
+
+        std::set<Peak>::iterator it = stars.begin();
+        while (it != stars.end())
+        {
+            std::set<Peak>::iterator next = it;
+            ++next;
+            if (it->x <= edgeDist || it->x >= subW - edgeDist ||
+                it->y <= edgeDist || it->y >= subH - edgeDist)
+            {
+                //Debug.Write(wxString::Format("AutoFind: too close to edge [%d, %d] %.1f\n", it->x, it->y, it->val));
+                stars.erase(it);
+            }
+            it = next;
+        }
+    }
+
+    QList<Edge*> centers;
+    for (std::set<Peak>::reverse_iterator it = stars.rbegin(); it != stars.rend(); ++it)
+    {
+        Edge *center = new Edge;
+        center->x = it->x;
+        center->y = it->y;
+        center->val = it->val;
+        centers.append(center);
+    }
+
+    delete [] conv;
+    delete (smoothed);
+
+    return centers;
+}
+
 
 //---------------------------------------------------------------------------------------
 cproc_in_params::cproc_in_params()
@@ -1404,3 +1773,4 @@ void cproc_out_params::reset(void)
         sigma[k]        = 0;
     }
 }
+

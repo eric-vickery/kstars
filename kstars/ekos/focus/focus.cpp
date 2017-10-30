@@ -55,6 +55,8 @@ Focus::Focus()
     //fy=fw=fh=0;
     HFRFrames.clear();
 
+    FilterDevicesCombo->addItem("--");
+
     showFITSViewerB->setIcon(
         QIcon::fromTheme("kstars_fitsviewer", QIcon(":/icons/breeze/default/kstars_fitsviewer.svg")));
     showFITSViewerB->setAttribute(Qt::WA_LayoutUsesWidgetRect);
@@ -93,15 +95,14 @@ Focus::Focus()
         }
     });
 
+    FocusSettleTime->setValue(Options::focusSettleTime());
+    connect(FocusSettleTime, static_cast<void(QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged),
+         [=](double d) { Options::setFocusSettleTime(d); });
     connect(focuserCombo, SIGNAL(activated(int)), this, SLOT(checkFocuser(int)));
-    connect(FilterCaptureCombo, SIGNAL(activated(int)), this, SLOT(checkFilter(int)));
-    connect(FilterPosCombo, SIGNAL(activated(int)), this, SLOT(updateFilterPos(int)));
-    connect(lockFilterCheck, SIGNAL(toggled(bool)), this, SLOT(filterLockToggled(bool)));
+    connect(FilterDevicesCombo, SIGNAL(activated(int)), this, SLOT(checkFilter(int)));
     connect(setAbsTicksB, SIGNAL(clicked()), this, SLOT(setAbsoluteFocusTicks()));
     connect(binningCombo, SIGNAL(activated(int)), this, SLOT(setActiveBinning(int)));
     connect(focusBoxSize, SIGNAL(valueChanged(int)), this, SLOT(updateBoxSize(int)));
-
-    connect(exposureIN, SIGNAL(editingFinished()), this, SLOT(saveFilterExposure()));
 
     focusDetection = static_cast<StarAlgorithm>(Options::focusDetection());
     focusDetectionCombo->setCurrentIndex(focusDetection);
@@ -220,8 +221,7 @@ Focus::Focus()
     focusBoxSize->setValue(Options::focusBoxSize());
     maxTravelIN->setValue(Options::focusMaxTravel());
     useSubFrame->setChecked(Options::focusSubFrame());
-    suspendGuideCheck->setChecked(Options::suspendGuiding());
-    lockFilterCheck->setChecked(Options::lockFocusFilter());
+    suspendGuideCheck->setChecked(Options::suspendGuiding());    
     darkFrameCheck->setChecked(Options::useFocusDarkFrame());
     thresholdSpin->setValue(Options::focusThreshold());
     useFullField->setChecked(Options::focusUseFullField());
@@ -423,28 +423,26 @@ void Focus::addFilter(ISD::GDInterface *newFilter)
     }
 
     FilterCaptureLabel->setEnabled(true);
-    FilterCaptureCombo->setEnabled(true);
+    FilterDevicesCombo->setEnabled(true);
     FilterPosLabel->setEnabled(true);
     FilterPosCombo->setEnabled(true);
-    lockFilterCheck->setEnabled(true);
+    filterManagerB->setEnabled(true);
 
-    FilterCaptureCombo->addItem(newFilter->getDeviceName());
+    FilterDevicesCombo->addItem(newFilter->getDeviceName());
 
     Filters.append(static_cast<ISD::Filter *>(newFilter));
 
-    checkFilter(0);
+    checkFilter(1);
 
-    FilterCaptureCombo->setCurrentIndex(0);
-
-    refreshFilterExposure();
+    FilterDevicesCombo->setCurrentIndex(1);
 }
 
 bool Focus::setFilter(QString device, int filterSlot)
 {
     bool deviceFound = false;
 
-    for (int i = 0; i < FilterCaptureCombo->count(); i++)
-        if (device == FilterCaptureCombo->itemText(i))
+    for (int i = 0; i < FilterDevicesCombo->count(); i++)
+        if (device == FilterDevicesCombo->itemText(i))
         {
             checkFilter(i);
             deviceFound = true;
@@ -454,8 +452,8 @@ bool Focus::setFilter(QString device, int filterSlot)
     if (deviceFound == false)
         return false;
 
-    if (filterSlot < FilterCaptureCombo->count())
-        FilterCaptureCombo->setCurrentIndex(filterSlot);
+    if (filterSlot < FilterDevicesCombo->count())
+        FilterDevicesCombo->setCurrentIndex(filterSlot);
 
     return true;
 }
@@ -464,102 +462,34 @@ void Focus::checkFilter(int filterNum)
 {
     if (filterNum == -1)
     {
-        filterNum = FilterCaptureCombo->currentIndex();
+        filterNum = FilterDevicesCombo->currentIndex();
         if (filterNum == -1)
             return;
     }
 
-    QStringList filterAlias = Options::filterAlias();
-
-    bool deviceChanged = false;
-    if (filterNum <= Filters.count())
+    // "--" is no filter
+    if (filterNum == 0)
     {
-        if (currentFilter != Filters.at(filterNum))
-            deviceChanged = true;
-        currentFilter = Filters.at(filterNum);
-    }
-
-    FilterPosCombo->clear();
-
-    filterName = currentFilter->getBaseDevice()->getText("FILTER_NAME");
-    filterSlot = currentFilter->getBaseDevice()->getNumber("FILTER_SLOT");
-
-    if (filterSlot == nullptr)
-    {
-        KMessageBox::error(0, i18n("Unable to find FILTER_SLOT property in driver %1",
-                                   currentFilter->getBaseDevice()->getDeviceName()));
+        currentFilter = nullptr;
+        currentFilterPosition=-1;
+        FilterPosCombo->clear();
         return;
     }
 
-    currentFilterIndex = filterSlot->np[0].value - 1;
+    if (filterNum <= Filters.count())
+        currentFilter = Filters.at(filterNum-1);
 
-    for (int i = 0; i < filterSlot->np[0].max; i++)
-    {
-        QString item;
+    filterManager->setCurrentFilter(currentFilter);
 
-        if (filterName != nullptr && (i < filterName->ntp))
-            item = filterName->tp[i].text;
-        else if (i < filterAlias.count() && filterAlias[i].isEmpty() == false)
-            item = filterAlias.at(i);
-        else
-            item = QString("Filter_%1").arg(i + 1);
+    FilterPosCombo->clear();
 
-        FilterPosCombo->addItem(item);
-    }
+    FilterPosCombo->addItems(filterManager->getFilterLabels());
 
-    if (lockFilterCheck->isChecked() == false)
-        FilterPosCombo->setCurrentIndex(currentFilterIndex);
-    else
-    {
-        if (lockedFilterIndex < 0)
-        {
-            //lockedFilterIndex = currentFilterIndex;
-            lockedFilterIndex = Options::lockFocusFilterIndex();
-            emit filterLockUpdated(currentFilter, lockedFilterIndex);
-        }
-        FilterPosCombo->setCurrentIndex(lockedFilterIndex);
-    }
+    currentFilterPosition = filterManager->getFilterPosition();
 
-    // If we are waiting to change the filter wheel, let's check if the condition is now met.
-    if (filterPositionPending)
-    {
-        if (lockedFilterIndex == currentFilterIndex)
-        {
-            filterPositionPending = false;
-            capture();
-        }
-    }
+    FilterPosCombo->setCurrentIndex(currentFilterPosition-1);
 
-    if (deviceChanged)
-        refreshFilterExposure();
-}
-
-void Focus::filterLockToggled(bool enable)
-{
-    if (enable)
-    {
-        lockedFilterIndex = FilterPosCombo->currentIndex();
-        if (lockedFilterIndex >= 0)
-            Options::setLockFocusFilterIndex(lockedFilterIndex);
-        emit filterLockUpdated(currentFilter, lockedFilterIndex);
-    }
-    else if (filterSlot != nullptr)
-    {
-        FilterPosCombo->setCurrentIndex(filterSlot->np[0].value - 1);
-        emit filterLockUpdated(nullptr, 0);
-    }
-}
-
-void Focus::updateFilterPos(int index)
-{
-    if (lockFilterCheck->isChecked() == true)
-    {
-        lockedFilterIndex = index;
-        Options::setLockFocusFilterIndex(lockedFilterIndex);
-        emit filterLockUpdated(currentFilter, lockedFilterIndex);
-    }
-
-    refreshFilterExposure();
+    exposureIN->setValue(filterManager->getFilterExposure());
 }
 
 void Focus::addFocuser(ISD::GDInterface *newFocuser)
@@ -596,7 +526,10 @@ void Focus::checkFocuser(int FocuserNum)
         FocuserNum = focuserCombo->currentIndex();
 
     if (FocuserNum == -1)
+    {
+        currentFocuser = nullptr;
         return;
+    }
 
     if (FocuserNum <= Focusers.count())
         currentFocuser = Focusers.at(FocuserNum);
@@ -758,8 +691,7 @@ void Focus::start()
     Options::setFocusBoxSize(focusBoxSize->value());
     Options::setFocusSubFrame(useSubFrame->isChecked());
     Options::setFocusAutoStarEnabled(useAutoStar->isChecked());
-    Options::setSuspendGuiding(suspendGuideCheck->isChecked());
-    Options::setLockFocusFilter(lockFilterCheck->isChecked());
+    Options::setSuspendGuiding(suspendGuideCheck->isChecked());    
     Options::setUseFocusDarkFrame(darkFrameCheck->isChecked());
     Options::setFocusFramesCount(focusFramesSpin->value());
 
@@ -884,7 +816,7 @@ void Focus::capture()
         currentCCD->setBLOBEnabled(true);
     }
 
-    if (currentFilter != nullptr && lockFilterCheck->isChecked())
+    if (currentFilter != nullptr)
     {
         if (currentFilter->isConnected() == false)
         {
@@ -892,12 +824,13 @@ void Focus::capture()
             return;
         }
 
-        if (lockedFilterIndex != currentFilterIndex)
-        {
-            int lockedFilterPosition = lockedFilterIndex + 1;
+        if (FilterPosCombo->currentIndex()+1 != currentFilterPosition)
+        {            
             filterPositionPending    = true;
-            appendLogText(i18n("Changing filter to %1", FilterPosCombo->currentText()));
-            currentFilter->runCommand(INDI_SET_FILTER, &lockedFilterPosition);
+            int targetPosition = FilterPosCombo->currentIndex() + 1;
+            // Only apply change filter and offset policies. Do not lock or autofocus as we are calling this from with
+            // focus module
+            filterManager->setFilterPosition(targetPosition, static_cast<FilterManager::FilterPolicy>(FilterManager::CHANGE_POLICY|FilterManager::OFFSET_POLICY));
             return;
         }
     }
@@ -1403,9 +1336,9 @@ void Focus::setCaptureComplete()
                 starCenter.setY(subH / (2 * subBinY));
                 starCenter.setZ(subBinX);
 
-                subFramed = true;
+                subFramed = true;                
 
-                focusView->setFirstLoad(true);
+                focusView->setFirstLoad(true);                
 
                 capture();
             }
@@ -1451,6 +1384,7 @@ void Focus::setCaptureComplete()
 
     if (minimumRequiredHFR >= 0)
     {
+
         if (currentHFR == -1)
         {
             if (noStarCount++ < MAX_RECAPTURE_RETRIES)
@@ -2096,7 +2030,8 @@ void Focus::processFocusNumber(INumberVectorProperty *nvp)
         if (canAbsMove && inAutoFocus)
         {
             if (nvp->s == IPS_OK && captureInProgress == false)
-                capture();
+                QTimer::singleShot(FocusSettleTime->value()*1000, this, SLOT(capture()));
+                //capture();
             else if (nvp->s == IPS_ALERT)
             {
                 appendLogText(i18n("Focuser error, check INDI panel."));
@@ -2136,7 +2071,7 @@ void Focus::processFocusNumber(INumberVectorProperty *nvp)
         if (canRelMove && inAutoFocus)
         {
             if (nvp->s == IPS_OK && captureInProgress == false)
-                capture();
+                QTimer::singleShot(FocusSettleTime->value()*1000, this, SLOT(capture()));
             else if (nvp->s == IPS_ALERT)
             {
                 appendLogText(i18n("Focuser error, check INDI panel."));
@@ -2163,7 +2098,7 @@ void Focus::processFocusNumber(INumberVectorProperty *nvp)
         if (canAbsMove == false && canRelMove == false && inAutoFocus)
         {
             if (nvp->s == IPS_OK && captureInProgress == false)
-                capture();
+                QTimer::singleShot(FocusSettleTime->value()*1000, this, SLOT(capture()));
             else if (nvp->s == IPS_ALERT)
             {
                 appendLogText(i18n("Focuser error, check INDI panel."));
@@ -2255,6 +2190,14 @@ void Focus::resetButtons()
 
         startFocusB->setEnabled(focusType == FOCUS_AUTO);
         setAbsTicksB->setEnabled(canAbsMove);
+    }
+    else
+    {
+        focusOutB->setEnabled(false);
+        focusInB->setEnabled(false);
+
+        startFocusB->setEnabled(false);
+        setAbsTicksB->setEnabled(false);
     }
 
     stopFocusB->setEnabled(false);
@@ -2751,52 +2694,103 @@ bool Focus::findMinimum(double expected, double *position, double *hfr)
     return (status == GSL_SUCCESS);
 }
 
-void Focus::saveFilterExposure()
+void Focus::removeDevice(ISD::GDInterface *deviceRemoved)
 {
-    // Find matching filter if any and save its exposure
-    OAL::Filter *matchedFilter = nullptr;
-
-    foreach (OAL::Filter *o, m_filterList)
+    // Check in Focusers
+    for (ISD::GDInterface *focuser : Focusers)
     {
-        if (o->vendor() == FilterCaptureCombo->currentText() && o->color() == FilterPosCombo->currentText())
+        if (focuser == deviceRemoved)
         {
-            matchedFilter = o;
-            break;
+            Focusers.removeOne(dynamic_cast<ISD::Focuser*>(focuser));
+            focuserCombo->removeItem(focuserCombo->findText(focuser->getDeviceName()));
+            checkFocuser();
+            resetButtons();
+            return;
         }
     }
 
-    // If doesn't exist, create one
-    if (matchedFilter == nullptr)
-        KStarsData::Instance()->userdb()->AddFilter(FilterCaptureCombo->currentText(), "", "", "0",
-                                                    FilterPosCombo->currentText(),
-                                                    QString::number(exposureIN->value()));
-    // Or update existing
-    else
-        KStarsData::Instance()->userdb()->AddFilter(FilterCaptureCombo->currentText(), "", "", matchedFilter->offset(),
-                                                    matchedFilter->color(), QString::number(exposureIN->value()),
-                                                    matchedFilter->id());
-    // Reload
-    KStarsData::Instance()->userdb()->GetAllFilters(m_filterList);
-}
-
-void Focus::refreshFilterExposure()
-{
-    KStarsData::Instance()->userdb()->GetAllFilters(m_filterList);
-    OAL::Filter *matchedFilter = nullptr;
-
-    foreach (OAL::Filter *o, m_filterList)
+    // Check in CCDs
+    for (ISD::GDInterface *ccd : CCDs)
     {
-        if (o->vendor() == FilterCaptureCombo->currentText() && o->color() == FilterPosCombo->currentText())
+        if (ccd == deviceRemoved)
         {
-            matchedFilter = o;
-            break;
+            CCDs.removeOne(dynamic_cast<ISD::CCD*>(ccd));
+            CCDCaptureCombo->removeItem(CCDCaptureCombo->findText(ccd->getDeviceName()));
+            checkCCD();
+            resetButtons();
+            return;
         }
     }
 
-    if (matchedFilter)
-        exposureIN->setValue(matchedFilter->exposure().toDouble());
-    else
-        // Default value
-        exposureIN->setValue(1);
+    // Check in Filters
+    for (ISD::GDInterface *filter : Filters)
+    {
+        if (filter == deviceRemoved)
+        {
+            Filters.removeOne(filter);
+            filterCombo->removeItem(filterCombo->findText(filter->getDeviceName()));
+            checkFilter();
+            resetButtons();
+            return;
+        }
+    }
 }
+
+void Focus::setFilterManager(const QSharedPointer<FilterManager> &manager)
+{
+    filterManager = manager;
+    connect(filterManagerB, &QPushButton::clicked, [this]()
+    {
+        filterManager->show();
+        filterManager->raise();
+    });
+
+    connect(filterManager.data(), &FilterManager::ready, [this]()
+    {
+        if (filterPositionPending)
+        {
+            filterPositionPending = false;
+            capture();
+        }
+    }
+    );
+
+    connect(filterManager.data(), &FilterManager::failed, [this]()
+    {
+         appendLogText(i18n("Filter operation failed."));
+         abort();
+    }
+    );
+
+    connect(exposureIN, &QDoubleSpinBox::editingFinished, [this]()
+    {
+        if (currentFilter)
+            filterManager->setFilterExposure(exposureIN->value());
+    });
+
+    connect(filterManager.data(), &FilterManager::labelsChanged, this, [this]()
+    {
+        FilterPosCombo->clear();
+        FilterPosCombo->addItems(filterManager->getFilterLabels());
+        currentFilterPosition = filterManager->getFilterPosition();
+        FilterPosCombo->setCurrentIndex(currentFilterPosition-1);
+    });
+    connect(filterManager.data(), &FilterManager::positionChanged, this, [this]()
+    {
+        currentFilterPosition = filterManager->getFilterPosition();
+        FilterPosCombo->setCurrentIndex(currentFilterPosition-1);
+    });
+    connect(filterManager.data(), &FilterManager::exposureChanged, this, [this]()
+    {
+        exposureIN->setValue(filterManager->getFilterExposure());
+    ;});
+
+    connect(FilterPosCombo, static_cast<void(QComboBox::*)(const QString &)>(&QComboBox::currentIndexChanged),
+            [=](const QString &text)
+    {
+        exposureIN->setValue(filterManager->getFilterExposure(text));
+    }
+    );
+}
+
 }

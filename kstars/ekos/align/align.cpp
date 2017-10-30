@@ -101,19 +101,18 @@ Align::Align()
     connect(correctAzB, SIGNAL(clicked()), this, SLOT(correctAzError()));
     connect(loadSlewB, SIGNAL(clicked()), this, SLOT(loadAndSlew()));
 
-    FilterCaptureCombo->addItem("--");
-    connect(FilterCaptureCombo, static_cast<void(QComboBox::*)(const QString &)>(&QComboBox::activated),
+    FilterDevicesCombo->addItem("--");
+    connect(FilterDevicesCombo, static_cast<void(QComboBox::*)(const QString &)>(&QComboBox::activated),
             [=](const QString &text)
     {
         Options::setDefaultAlignFW(text);
     });
 
-    connect(FilterCaptureCombo, SIGNAL(activated(int)), this, SLOT(checkFilter(int)));
+    connect(FilterDevicesCombo, SIGNAL(activated(int)), this, SLOT(checkFilter(int)));
 
     connect(FilterPosCombo, static_cast<void(QComboBox::*)(int)>(&QComboBox::activated),
             [=](int index)
     {
-        lockedFilterIndex = index;
         Options::setLockAlignFilterIndex(index);
     }
     );
@@ -140,6 +139,7 @@ Align::Align()
 #endif
 
     opsAlign = new OpsAlign(this);
+    connect(opsAlign, SIGNAL(settingsUpdated()), this, SLOT(refreshAlignOptions()));
     KPageWidgetItem *page = dialog->addPage(opsAlign, i18n("Astrometry.net"));
     page->setIcon(QIcon(":/icons/astrometry.svg"));
 
@@ -1889,9 +1889,16 @@ void Align::setTelescope(ISD::GDInterface *newTelescope)
     currentTelescope = static_cast<ISD::Telescope *>(newTelescope);
 
     connect(currentTelescope, SIGNAL(numberUpdated(INumberVectorProperty*)), this,
-            SLOT(processTelescopeNumber(INumberVectorProperty*)));
+            SLOT(processNumber(INumberVectorProperty*)), Qt::UniqueConnection);
 
     syncTelescopeInfo();
+}
+
+void Align::setDome(ISD::GDInterface *newDome)
+{
+    currentDome = static_cast<ISD::Dome *>(newDome);
+    connect(currentDome, SIGNAL(switchUpdated(ISwitchVectorProperty*)), this,
+            SLOT(processSwitch(ISwitchVectorProperty*)), Qt::UniqueConnection);
 }
 
 void Align::syncTelescopeInfo()
@@ -2344,13 +2351,19 @@ bool Align::captureAndSolve()
         return false;
     }
 
-    if (currentFilter != nullptr && lockedFilterIndex != -1)
+    if (currentFilter != nullptr)
     {
-        if (lockedFilterIndex != currentFilterIndex)
+        if (currentFilter->isConnected() == false)
         {
-            int lockedFilterPosition = lockedFilterIndex + 1;
+            appendLogText(i18n("Error: Lost connection to filter wheel."));
+            return false;
+        }
+
+        if (FilterPosCombo->currentIndex()+1 != currentFilterPosition)
+        {
             filterPositionPending    = true;
-            currentFilter->runCommand(INDI_SET_FILTER, &lockedFilterPosition);
+            int targetPosition = FilterPosCombo->currentIndex() + 1;
+            filterManager->setFilterPosition(targetPosition);
             return true;
         }
     }
@@ -2418,13 +2431,17 @@ bool Align::captureAndSolve()
 
         dynamic_cast<RemoteAstrometryParser *>(remoteParser.get())->sendArgs(solverArgs);
 
-        if (solverIterations == 0)
+        // If mount model was reset, we do not update targetCoord
+        // since the RA/DE is now different immediately after the reset
+        // so we still try to lock for the coordinates before the reset.
+        if (solverIterations == 0 && mountModelReset == false)
         {
             double ra, dec;
             currentTelescope->getEqCoords(&ra, &dec);
             targetCoord.setRA(ra);
             targetCoord.setDec(dec);
         }
+        mountModelReset = false;
     }
     //else
     //{
@@ -2613,7 +2630,6 @@ void Align::setSolverAction(int mode)
 void Align::startSolving(const QString &filename, bool isGenerated)
 {
     QStringList solverArgs;
-    double ra, dec;
 
     QString options = solverOptions->text().simplified();
 
@@ -2679,13 +2695,15 @@ void Align::startSolving(const QString &filename, bool isGenerated)
         }
     }
 
-    currentTelescope->getEqCoords(&ra, &dec);
-
-    if (solverIterations == 0)
+    if (solverIterations == 0 && mountModelReset == false)
     {
+        double ra, dec;
+        currentTelescope->getEqCoords(&ra, &dec);
         targetCoord.setRA(ra);
         targetCoord.setDec(dec);
     }
+
+    mountModelReset = false;
 
     Options::setSolverType(solverTypeGroup->checkedId());
     //Options::setSolverOptions(solverOptions->text());
@@ -2774,12 +2792,21 @@ void Align::solverFinished(double orientation, double ra, double dec, double pix
 
     pixScaleOut->setText(QString::number(pixscale, 'f', 2));
 
-    emit newSolutionDeviation(raDiff, deDiff);
+    //emit newSolutionDeviation(raDiff, deDiff);
 
     targetDiff = sqrt(raDiff * raDiff + deDiff * deDiff);
 
+    // Because astrometry reads image upside-down (bottom to top), the orientation is rotated 180 degrees when compared to PA
+    // PA = Orientation + 180
+    double solverPA = orientation + 180;
+    // Limit PA to -180 to +180
+    if (solverPA > 180)
+        solverPA -= 360;
+    if (solverPA < -180)
+        solverPA += 360;
+
     solverFOV->setCenter(alignCoord);
-    solverFOV->setRotation(sOrientation);
+    solverFOV->setPA(solverPA);
     solverFOV->setImageDisplay(Options::astrometrySolverOverlay());
 
     QString ra_dms, dec_dms;
@@ -2895,6 +2922,48 @@ void Align::solverFinished(double orientation, double ra, double dec, double pix
 
         statusReport->setFlags(Qt::ItemIsSelectable);
     }
+
+    // Update Rotater offsets
+    if (currentRotator != nullptr)
+    {
+        // When Load&Slew image is solved, we check if we need to rotate the rotator to match the position angle of the image
+        if (loadSlewState == IPS_BUSY && Options::astrometryUseRotator())
+        {
+            loadSlewTargetPA = solverPA;
+            qCDebug(KSTARS_EKOS_ALIGN) << "loaSlewTargetPA:" << loadSlewTargetPA;
+
+        }
+        else
+        {
+            INumberVectorProperty *absAngle = currentRotator->getBaseDevice()->getNumber("ABS_ROTATOR_ANGLE");
+            if (absAngle)
+            {
+                // PA = RawAngle * Multiplier + Offset
+                currentRotatorPA = solverPA;
+                double rawAngle = absAngle->np[0].value;
+                double offset = solverPA - (rawAngle * Options::pAMultiplier());
+
+                qCDebug(KSTARS_EKOS_ALIGN) << "Raw Rotator Angle:" << rawAngle << "Rotator PA:" << currentRotatorPA << "Rotator Offset:" << offset;
+                Options::setPAOffset(offset);
+            }
+
+            if (absAngle && std::isnan(loadSlewTargetPA) == false && fabs(currentRotatorPA - loadSlewTargetPA) * 60 > Options::astrometryRotatorThreshold())
+            {
+                double rawAngle = (loadSlewTargetPA - Options::pAOffset()) / Options::pAMultiplier();
+                if (rawAngle < 0)
+                    rawAngle += 360;
+                else if (rawAngle > 360)
+                    rawAngle -= 360;
+                absAngle->np[0].value = rawAngle;
+                ClientManager *clientManager = currentRotator->getDriverInfo()->getClientManager();
+                clientManager->sendNewNumber(absAngle);
+                appendLogText(i18n("Setting position angle to %1 degrees E of N...", loadSlewTargetPA));
+                return;
+            }
+        }
+    }
+
+    emit newSolverResults(orientation, ra, dec, pixscale);
 
     switch (currentGotoMode)
     {
@@ -3118,22 +3187,38 @@ void Align::clearLog()
     emit newLog();
 }
 
-void Align::processTelescopeNumber(INumberVectorProperty *coord)
+void Align::processSwitch(ISwitchVectorProperty *svp)
 {
-    QString ra_dms, dec_dms;
-
-    if (!strcmp(coord->name, "EQUATORIAL_EOD_COORD"))
+    if (!strcmp(svp->name, "DOME_MOTION"))
     {
-        getFormattedCoords(coord->np[0].value, coord->np[1].value, ra_dms, dec_dms);
+        // If dome is not ready and state is now
+        if (domeReady == false && svp->s == IPS_OK)
+        {
+            domeReady = true;
+            // trigger process number for mount so that it proceeds with normal workflow since
+            // it was stopped by dome not being ready
+            INumberVectorProperty *nvp = currentTelescope->getBaseDevice()->getNumber("EQUATORIAL_EOD_COORD");
+            processNumber(nvp);
+        }
+    }
+}
 
-        telescopeCoord.setRA(coord->np[0].value);
-        telescopeCoord.setDec(coord->np[1].value);
+void Align::processNumber(INumberVectorProperty *nvp)
+{
+    if (!strcmp(nvp->name, "EQUATORIAL_EOD_COORD"))
+    {
+        QString ra_dms, dec_dms;
+
+        getFormattedCoords(nvp->np[0].value, nvp->np[1].value, ra_dms, dec_dms);
+
+        telescopeCoord.setRA(nvp->np[0].value);
+        telescopeCoord.setDec(nvp->np[1].value);
         telescopeCoord.EquatorialToHorizontal(KStarsData::Instance()->lst(), KStarsData::Instance()->geo()->lat());
 
         ScopeRAOut->setText(ra_dms);
         ScopeDecOut->setText(dec_dms);
 
-        switch (coord->s)
+        switch (nvp->s)
         {
         case IPS_OK:
         {
@@ -3143,10 +3228,17 @@ void Align::processTelescopeNumber(INumberVectorProperty *coord)
                 opsAstrometry->estRA->setText(ra_dms);
                 opsAstrometry->estDec->setText(dec_dms);
 
-                Options::setAstrometryPositionRA(coord->np[0].value * 15);
-                Options::setAstrometryPositionDE(coord->np[1].value);
+                Options::setAstrometryPositionRA(nvp->np[0].value * 15);
+                Options::setAstrometryPositionDE(nvp->np[1].value);
 
                 generateArgs();
+            }
+
+            // If dome is syncing, wait until it stops
+            if (currentDome && currentDome->isMoving())
+            {
+                domeReady = false;
+                return;
             }
 
             if (isSlewDirty && pahStage == PAH_FIND_CP)
@@ -3357,6 +3449,22 @@ void Align::processTelescopeNumber(INumberVectorProperty *coord)
             break;
         default:
             break;
+        }
+    }
+    else if (!strcmp(nvp->name, "ABS_ROTATOR_ANGLE"))
+    {
+        // PA = RawAngle * Multiplier + Offset
+        currentRotatorPA = (nvp->np[0].value * Options::pAMultiplier()) + Options::pAOffset();
+        if (currentRotatorPA > 180)
+            currentRotatorPA -= 360;
+        if (currentRotatorPA < -180)
+            currentRotatorPA += 360;
+        if (std::isnan(loadSlewTargetPA) == false && fabs(currentRotatorPA - loadSlewTargetPA)*60 <= Options::astrometryRotatorThreshold())
+        {
+            appendLogText(i18n("Rotator reached target position angle."));
+            targetAccuracyNotMet = true;
+            loadSlewTargetPA = std::numeric_limits<double>::quiet_NaN();
+            QTimer::singleShot(Options::settlingTime(), this, SLOT(executeGOTO()));
         }
     }
 
@@ -3978,27 +4086,27 @@ void Align::addFilter(ISD::GDInterface *newFilter)
     }
 
     FilterCaptureLabel->setEnabled(true);
-    FilterCaptureCombo->setEnabled(true);
+    FilterDevicesCombo->setEnabled(true);
     FilterPosLabel->setEnabled(true);
     FilterPosCombo->setEnabled(true);
 
-    FilterCaptureCombo->addItem(newFilter->getDeviceName());
+    FilterDevicesCombo->addItem(newFilter->getDeviceName());
 
     Filters.append(static_cast<ISD::Filter *>(newFilter));
 
     checkFilter(1);
 
-    FilterCaptureCombo->setCurrentIndex(1);
+    FilterDevicesCombo->setCurrentIndex(1);
 }
 
 bool Align::setFilter(QString device, int filterSlot)
 {
     bool deviceFound = false;
 
-    for (int i = 0; i < FilterCaptureCombo->count(); i++)
-        if (device == FilterCaptureCombo->itemText(i))
+    for (int i = 0; i < FilterDevicesCombo->count(); i++)
+        if (device == FilterDevicesCombo->itemText(i))
         {
-            FilterCaptureCombo->setCurrentIndex(i);
+            FilterDevicesCombo->setCurrentIndex(i);
             deviceFound = true;
             break;
         }
@@ -4006,8 +4114,8 @@ bool Align::setFilter(QString device, int filterSlot)
     if (deviceFound == false)
         return false;
 
-    if (filterSlot >=0 && filterSlot < FilterCaptureCombo->count())
-        FilterCaptureCombo->setCurrentIndex(filterSlot);
+    if (filterSlot >=0 && filterSlot < FilterDevicesCombo->count())
+        FilterDevicesCombo->setCurrentIndex(filterSlot);
 
     return true;
 }
@@ -4016,100 +4124,31 @@ void Align::checkFilter(int filterNum)
 {
     if (filterNum == -1)
     {
-        filterNum = FilterCaptureCombo->currentIndex();
+        filterNum = FilterDevicesCombo->currentIndex();
         if (filterNum == -1)
             return;
     }
 
+    // "--" is no filter
     if (filterNum == 0)
     {
         currentFilter = nullptr;
-        currentFilterIndex=-1;
+        currentFilterPosition=-1;
         FilterPosCombo->clear();
-        //syncFilterInfo();
         return;
     }
-
-    QStringList filterAlias = Options::filterAlias();
 
     if (filterNum <= Filters.count())
         currentFilter = Filters.at(filterNum-1);
 
     FilterPosCombo->clear();
 
-    ITextVectorProperty *filterName = currentFilter->getBaseDevice()->getText("FILTER_NAME");
-    INumberVectorProperty *filterSlot = currentFilter->getBaseDevice()->getNumber("FILTER_SLOT");
+    FilterPosCombo->addItems(filterManager->getFilterLabels());
 
-    if (filterSlot == nullptr)
-    {
-        KMessageBox::error(0, i18n("Unable to find FILTER_SLOT property in driver %1",
-                                   currentFilter->getBaseDevice()->getDeviceName()));
-        return;
-    }
+    currentFilterPosition = filterManager->getFilterPosition();
 
-    currentFilterIndex = filterSlot->np[0].value - 1;
-
-    for (int i = 0; i < filterSlot->np[0].max; i++)
-    {
-        QString item;
-
-        if (filterName != nullptr && (i < filterName->ntp))
-            item = filterName->tp[i].text;
-        else if (i < filterAlias.count() && filterAlias[i].isEmpty() == false)
-            item = filterAlias.at(i);
-        else
-            item = QString("Filter_%1").arg(i + 1);
-
-        FilterPosCombo->addItem(item);
-    }
-
-    if (lockedFilterIndex < 0)
-        lockedFilterIndex = Options::lockAlignFilterIndex();
-    FilterPosCombo->setCurrentIndex(lockedFilterIndex);
-
-    // If we are waiting to change the filter wheel, let's check if the condition is now met.
-    if (filterPositionPending)
-    {
-        if (lockedFilterIndex == currentFilterIndex)
-        {
-            filterPositionPending = false;
-            captureAndSolve();
-        }
-    }
+    FilterPosCombo->setCurrentIndex(Options::lockAlignFilterIndex());
 }
-
-/*void Align::setLockedFilter(ISD::GDInterface *filter, int lockedPosition)
-{
-    currentFilter = filter;
-    if (currentFilter)
-    {
-        lockedFilterIndex = lockedPosition;
-
-        INumberVectorProperty *filterSlot = filter->getBaseDevice()->getNumber("FILTER_SLOT");
-        if (filterSlot)
-            currentFilterIndex = filterSlot->np[0].value - 1;
-
-        connect(currentFilter, SIGNAL(numberUpdated(INumberVectorProperty*)), this,
-                SLOT(processFilterNumber(INumberVectorProperty*)), Qt::UniqueConnection);
-    }
-}*/
-
-/*void Align::processFilterNumber(INumberVectorProperty *nvp)
-{
-    if (currentFilter && !strcmp(nvp->name, "FILTER_SLOT") && !strcmp(nvp->device, currentFilter->getDeviceName()))
-    {
-        currentFilterIndex = nvp->np[0].value - 1;
-
-        if (filterPositionPending)
-        {
-            if (currentFilterIndex == lockedFilterIndex)
-            {
-                filterPositionPending = false;
-                captureAndSolve();
-            }
-        }
-    }
-}*/
 
 void Align::setWCSEnabled(bool enable)
 {
@@ -4163,6 +4202,15 @@ void Align::checkCCDExposureProgress(ISD::CCDChip *targetChip, double remaining,
         }
 
         appendLogText(i18n("Restarting capture attempt #%1", retries));
+
+        int currentRow = solutionTable->rowCount() - 1;
+
+        solutionTable->setCellWidget(currentRow, 3, new QWidget());
+        QTableWidgetItem *statusReport = new QTableWidgetItem();
+        statusReport->setIcon(QIcon(":/icons/AlignFailure.svg"));
+        statusReport->setFlags(Qt::ItemIsSelectable);
+        solutionTable->setItem(currentRow, 3, statusReport);
+
         captureAndSolve();
     }
 }
@@ -4174,11 +4222,11 @@ void Align::setFocusStatus(Ekos::FocusState state)
 
 QStringList Align::getSolverOptionsFromFITS(const QString &filename)
 {
-    int status = 0, fits_ccd_width, fits_ccd_height, fits_focal_length = -1, fits_binx = 1, fits_biny = 1;
+    int status = 0, fits_ccd_width, fits_ccd_height, fits_binx = 1, fits_biny = 1;
     char comment[128], error_status[512];
     fitsfile *fptr = nullptr;
     double ra = 0, dec = 0, fits_fov_x, fits_fov_y, fov_lower, fov_upper, fits_ccd_hor_pixel = -1,
-            fits_ccd_ver_pixel = -1;
+            fits_ccd_ver_pixel = -1, fits_focal_length = -1;
     QString fov_low, fov_high;
     QStringList solver_args;
 
@@ -4201,6 +4249,7 @@ QStringList Align::getSolverOptionsFromFITS(const QString &filename)
 
     solver_args = generateOptions(optionsMap);
 
+    status = 0;
     if (fits_open_image(&fptr, filename.toLatin1(), READONLY, &status))
     {
         fits_report_error(stderr, status);
@@ -4209,6 +4258,7 @@ QStringList Align::getSolverOptionsFromFITS(const QString &filename)
         return solver_args;
     }
 
+    status = 0;
     if (fits_read_key(fptr, TINT, "NAXIS1", &fits_ccd_width, comment, &status))
     {
         fits_report_error(stderr, status);
@@ -4217,6 +4267,7 @@ QStringList Align::getSolverOptionsFromFITS(const QString &filename)
         return solver_args;
     }
 
+    status = 0;
     if (fits_read_key(fptr, TINT, "NAXIS2", &fits_ccd_height, comment, &status))
     {
         fits_report_error(stderr, status);
@@ -4227,38 +4278,40 @@ QStringList Align::getSolverOptionsFromFITS(const QString &filename)
 
     bool coord_ok = true;
 
-    if (fits_read_key(fptr, TDOUBLE, "OBJCTRA", &ra, comment, &status))
+    status = 0;
+    char objectra_str[32];
+    if (fits_read_key(fptr, TSTRING, "OBJCTRA", objectra_str, comment, &status))
     {
-        char objectra_str[32];
-        if (fits_read_key(fptr, TSTRING, "OBJCTRA", objectra_str, comment, &status))
+        if (fits_read_key(fptr, TDOUBLE, "OBJCTRA", &ra, comment, &status))
         {
             fits_report_error(stderr, status);
             fits_get_errstatus(status, error_status);
             coord_ok = false;
-            appendLogText(i18n("FITS header: Cannot find OBJCTRA."));
-        }
-        else
-        {
-            dms raDMS = dms::fromString(objectra_str, false);
-            ra        = raDMS.Hours();
+            appendLogText(i18n("FITS header: Cannot find OBJCTRA (%1).", QString(error_status)));
         }
     }
-
-    if (coord_ok && fits_read_key(fptr, TDOUBLE, "OBJCTDEC", &dec, comment, &status))
+    else
     {
-        char objectde_str[32];
-        if (fits_read_key(fptr, TSTRING, "OBJCTDEC", objectde_str, comment, &status))
+        dms raDMS = dms::fromString(objectra_str, false);
+        ra        = raDMS.Hours();
+    }
+
+    status = 0;
+    char objectde_str[32];
+    if (coord_ok && fits_read_key(fptr, TSTRING, "OBJCTDEC", objectde_str, comment, &status))
+    {
+        if (fits_read_key(fptr, TDOUBLE, "OBJCTDEC", &dec, comment, &status))
         {
             fits_report_error(stderr, status);
             fits_get_errstatus(status, error_status);
             coord_ok = false;
-            appendLogText(i18n("FITS header: Cannot find OBJCTDEC."));
+            appendLogText(i18n("FITS header: Cannot find OBJCTDEC (%1).", QString(error_status)));
         }
-        else
-        {
-            dms deDMS = dms::fromString(objectde_str, true);
-            dec       = deDMS.Degrees();
-        }
+    }
+    else
+    {
+        dms deDMS = dms::fromString(objectde_str, true);
+        dec       = deDMS.Degrees();
     }
 
     /*if (coord_ok == false)
@@ -4270,31 +4323,42 @@ QStringList Align::getSolverOptionsFromFITS(const QString &filename)
     if (coord_ok && Options::astrometryUsePosition())
         solver_args << "-3" << QString::number(ra * 15.0) << "-4" << QString::number(dec) << "-5 15";
 
-    if (fits_read_key(fptr, TINT, "FOCALLEN", &fits_focal_length, comment, &status))
+    status = 0;
+    if (fits_read_key(fptr, TDOUBLE, "FOCALLEN", &fits_focal_length, comment, &status))
     {
-        fits_report_error(stderr, status);
-        fits_get_errstatus(status, error_status);
-        appendLogText(i18n("FITS header: Cannot find FOCALLEN."));
-        return solver_args;
+        int integer_focal_length = -1;
+        if (fits_read_key(fptr, TINT, "FOCALLEN", &integer_focal_length, comment, &status))
+        {
+            fits_report_error(stderr, status);
+            fits_get_errstatus(status, error_status);
+            appendLogText(i18n("FITS header: Cannot find FOCALLEN (%1).", QString(error_status)));
+            return solver_args;
+        }
+        else
+            fits_focal_length = integer_focal_length;
     }
 
+    status = 0;
     if (fits_read_key(fptr, TDOUBLE, "PIXSIZE1", &fits_ccd_hor_pixel, comment, &status))
     {
         fits_report_error(stderr, status);
         fits_get_errstatus(status, error_status);
-        appendLogText(i18n("FITS header: Cannot find PIXSIZE1."));
+        appendLogText(i18n("FITS header: Cannot find PIXSIZE1 (%1).", QString(error_status)));
         return solver_args;
     }
 
+    status = 0;
     if (fits_read_key(fptr, TDOUBLE, "PIXSIZE2", &fits_ccd_ver_pixel, comment, &status))
     {
         fits_report_error(stderr, status);
         fits_get_errstatus(status, error_status);
-        appendLogText(i18n("FITS header: Cannot find PIXSIZE2."));
+        appendLogText(i18n("FITS header: Cannot find PIXSIZE2 (%1).", QString(error_status)));
         return solver_args;
     }
 
+    status = 0;
     fits_read_key(fptr, TINT, "XBINNING", &fits_binx, comment, &status);
+    status = 0;
     fits_read_key(fptr, TINT, "YBINNING", &fits_biny, comment, &status);
 
     // Calculate FOV
@@ -4333,8 +4397,8 @@ void Align::setCaptureStatus(CaptureState newState)
     case CAPTURE_ALIGNING:
         if (currentTelescope && currentTelescope->hasAlignmentModel() && Options::resetMountModelAfterMeridian())
         {
-            bool rc = currentTelescope->clearAlignmentModel();
-            qCDebug(KSTARS_EKOS_ALIGN) << "Post meridian flip mount model reset" << (rc ? "successful." : "failed.");
+            mountModelReset = currentTelescope->clearAlignmentModel();
+            qCDebug(KSTARS_EKOS_ALIGN) << "Post meridian flip mount model reset" << (mountModelReset ? "successful." : "failed.");
         }
 
         QTimer::singleShot(Options::settlingTime(), this, SLOT(captureAndSolve()));
@@ -4414,7 +4478,7 @@ void Align::startPAHProcess()
     if (currentTelescope->hasAlignmentModel())
     {
         appendLogText(i18n("Clearing mount Alignment Model..."));
-        currentTelescope->clearAlignmentModel();
+        mountModelReset = currentTelescope->clearAlignmentModel();
     }
 
     // Set tracking ON if not already
@@ -5066,4 +5130,68 @@ void Align::setAstrometryDevice(ISD::GDInterface *newAstrometry)
     if (remoteParser.get() != nullptr)
         remoteParser->setAstrometryDevice(remoteParserDevice);
 }
+
+void Align::setRotator(ISD::GDInterface *newRotator)
+{
+    currentRotator = newRotator;
+    connect(currentRotator, SIGNAL(numberUpdated(INumberVectorProperty*)), this, SLOT(processNumber(INumberVectorProperty*)), Qt::UniqueConnection);
+}
+
+void Align::refreshAlignOptions()
+{
+    if (fov())
+        fov()->setImageDisplay(Options::astrometrySolverWCS());
+
+    alignTimer.setInterval(Options::astrometryTimeout() * 1000);
+}
+
+void Align::setFilterManager(const QSharedPointer<FilterManager> &manager)
+{
+    filterManager = manager;
+
+    connect(filterManager.data(), &FilterManager::ready, [this]()
+    {
+        if (filterPositionPending)
+        {
+            filterPositionPending = false;
+            captureAndSolve();
+        }
+    }
+    );
+
+    connect(filterManager.data(), &FilterManager::failed, [this]()
+    {
+         appendLogText(i18n("Filter operation failed."));
+         abort();
+    }
+    );
+
+    connect(filterManager.data(), &FilterManager::newStatus, [this](Ekos::FilterState filterState)
+    {
+        if (filterPositionPending)
+        {
+            switch (filterState)
+            {
+                case FILTER_OFFSET:
+                    appendLogText(i18n("Changing focus offset by %1 steps...", filterManager->getTargetFilterOffset()));
+                    break;
+
+                case FILTER_CHANGE:
+                    appendLogText(i18n("Changing filter to %1...", FilterPosCombo->itemText(filterManager->getTargetFilterPosition()-1)));
+                    break;
+
+                case FILTER_AUTOFOCUS:
+                    appendLogText(i18n("Auto focus on filter change..."));
+                    break;
+
+                default:
+                break;
+            }
+        }
+    });
+
+    connect(filterManager.data(), &FilterManager::labelsChanged, this, [this]() { checkFilter(); });
+    connect(filterManager.data(), &FilterManager::positionChanged, this, [this]() { checkFilter();});
+}
+
 }

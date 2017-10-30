@@ -60,7 +60,9 @@ Mount::Mount()
     connect(minAltLimit, SIGNAL(editingFinished()), this, SLOT(saveLimits()));
     connect(maxAltLimit, SIGNAL(editingFinished()), this, SLOT(saveLimits()));
 
-    connect(mountToolBoxB, SIGNAL(clicked()), this, SLOT(showMountToolBox()));
+    connect(mountToolBoxB, SIGNAL(clicked()), this, SLOT(toggleMountToolBox()));
+
+    connect(saveB, SIGNAL(clicked()), this, SLOT(save()));
 
     connect(clearAlignmentModelB, &QPushButton::clicked, this, [this]()
     {
@@ -142,12 +144,17 @@ void Mount::setTelescope(ISD::GDInterface *newTelescope)
         return;
     }
 
+    if (currentGPS != nullptr)
+        syncGPS();
+
     currentTelescope = static_cast<ISD::Telescope *>(newTelescope);
 
     connect(currentTelescope, SIGNAL(numberUpdated(INumberVectorProperty*)), this,
             SLOT(updateNumber(INumberVectorProperty*)), Qt::UniqueConnection);
     connect(currentTelescope, SIGNAL(switchUpdated(ISwitchVectorProperty*)), this,
             SLOT(updateSwitch(ISwitchVectorProperty*)), Qt::UniqueConnection);
+    connect(currentTelescope, SIGNAL(textUpdated(ITextVectorProperty*)), this,
+            SLOT(updateText(ITextVectorProperty*)), Qt::UniqueConnection);
     connect(currentTelescope, SIGNAL(newTarget(QString)), this, SIGNAL(newTarget(QString)), Qt::UniqueConnection);
     connect(currentTelescope, &ISD::Telescope::Disconnected, [this]()
     {
@@ -277,6 +284,14 @@ void Mount::syncTelescopeInfo()
     ITextVectorProperty *tvp = currentTelescope->getBaseDevice()->getText("SCOPE_CONFIG_NAME");
     if (tvp)
         scopeConfigNameEdit->setText(tvp->tp[0].text);
+}
+
+void Mount::updateText(ITextVectorProperty *tvp)
+{
+    if (!strcmp(tvp->name, "SCOPE_CONFIG_NAME"))
+    {
+        scopeConfigNameEdit->setText(tvp->tp[0].text);
+    }
 }
 
 bool Mount::setScopeConfig(int index)
@@ -435,6 +450,9 @@ void Mount::updateNumber(INumberVectorProperty *nvp)
             }
         }
     }
+
+    if (currentGPS != nullptr && !strcmp(nvp->device, currentGPS->getDeviceName()) && !strcmp(nvp->name, "GEOGRAPHIC_COORD") && nvp->s == IPS_OK)
+        syncGPS();
 }
 
 bool Mount::setSlewRate(int index)
@@ -781,7 +799,12 @@ Mount::ParkingStatus Mount::getParkingStatus()
     switch (parkSP->s)
     {
         case IPS_IDLE:
-            return PARKING_IDLE;
+            // If mount is unparked on startup, state is OK and switch is UNPARK
+            if (parkSP->sp[1].s == ISS_ON)
+                return UNPARKING_OK;
+            else
+                return PARKING_IDLE;
+            break;
 
         case IPS_OK:
             if (parkSP->sp[0].s == ISS_ON)
@@ -803,9 +826,12 @@ Mount::ParkingStatus Mount::getParkingStatus()
     return PARKING_ERROR;
 }
 
-void Mount::showMountToolBox()
+void Mount::toggleMountToolBox()
 {
-    m_BaseView->show();
+    if (m_BaseView->isVisible())
+        m_BaseView->hide();
+    else
+        m_BaseView->show();
 }
 
 void Mount::findTarget()
@@ -850,5 +876,59 @@ bool Mount::resetModel()
 
     appendLogText(i18n("Failed to clear Alignment Model."));
     return false;
+}
+
+void Mount::setGPS(ISD::GDInterface *newGPS)
+{
+    if (newGPS == currentGPS)
+        return;
+
+    currentGPS = newGPS;
+    connect(newGPS, SIGNAL(numberUpdated(INumberVectorProperty*)), this, SLOT(updateNumber(INumberVectorProperty*)), Qt::UniqueConnection);
+
+    Options::setUseComputerSource(false);
+    Options::setUseDeviceSource(true);
+
+    appendLogText(i18n("GPS driver detected. KStars and mount time and location settings are now synced to the GPS driver."));
+
+    syncGPS();
+}
+
+void Mount::syncGPS()
+{
+    // We only update when location is OK
+    INumberVectorProperty *location = currentGPS->getBaseDevice()->getNumber("GEOGRAPHIC_COORD");
+    if (location == nullptr || location->s != IPS_OK)
+        return;
+
+    // Sync name
+    if (currentTelescope)
+    {
+        ITextVectorProperty *activeDevices = currentTelescope->getBaseDevice()->getText("ACTIVE_DEVICES");
+        if (activeDevices)
+        {
+            IText *activeGPS = IUFindText(activeDevices, "ACTIVE_GPS");
+            if (activeGPS)
+            {
+                if (strcmp(activeGPS->text, currentGPS->getDeviceName()))
+                {
+                    IUSaveText(activeGPS, currentGPS->getDeviceName());
+                    currentTelescope->getDriverInfo()->getClientManager()->sendNewText(activeDevices);
+                }
+            }
+        }
+    }
+
+    // GPS Refresh should only be called once automatically.
+    if (GPSInitialized == false)
+    {
+        ISwitchVectorProperty *refreshGPS = currentGPS->getBaseDevice()->getSwitch("GPS_REFRESH");
+        if (refreshGPS)
+        {
+            refreshGPS->sp[0].s = ISS_ON;
+            currentGPS->getDriverInfo()->getClientManager()->sendNewSwitch(refreshGPS);
+            GPSInitialized = true;
+        }
+    }
 }
 }

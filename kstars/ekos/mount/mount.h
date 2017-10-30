@@ -46,6 +46,8 @@ class Mount : public QWidget, public Ui::Mount
          */
     void setTelescope(ISD::GDInterface *newTelescope);
 
+    void setGPS(ISD::GDInterface *newGPS);
+
     // Log functions
     void appendLogText(const QString &);
     void clearLog();
@@ -196,6 +198,13 @@ class Mount : public QWidget, public Ui::Mount
          */
     void updateSwitch(ISwitchVectorProperty *svp);
 
+
+    /**
+         * @brief updateText Update text properties under watch in the mount module
+         * @param tvp pointer to text property
+         */
+    void updateText(ITextVectorProperty *tvp);
+
     /**
          * @brief updateLog Update mount module log to include any messages arriving for the telescope driver
          * @param messageID ID of the new message
@@ -245,7 +254,7 @@ class Mount : public QWidget, public Ui::Mount
     bool setScopeConfig(int index);
 
   protected slots:
-    void showMountToolBox();
+    void toggleMountToolBox();
 
   signals:
     void newLog();
@@ -254,7 +263,10 @@ class Mount : public QWidget, public Ui::Mount
     void newStatus(ISD::Telescope::TelescopeStatus status);
 
   private:
-    ISD::Telescope *currentTelescope;
+    void syncGPS();
+
+    ISD::Telescope *currentTelescope = nullptr;
+    ISD::GDInterface *currentGPS = nullptr;
     QStringList logText;
     SkyPoint telescopeCoord;
     QString lastNotificationMessage;
@@ -262,6 +274,7 @@ class Mount : public QWidget, public Ui::Mount
     double lastAlt;
     int abortDispatch;
     bool altLimitEnabled;
+    bool GPSInitialized = {false};
     ISD::Telescope::TelescopeStatus lastStatus = ISD::Telescope::MOUNT_IDLE;
 
     QQuickView *m_BaseView = nullptr;

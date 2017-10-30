@@ -52,6 +52,8 @@ Capture::Capture()
     new CaptureAdaptor(this);
     QDBusConnection::sessionBus().registerObject("/KStars/Ekos/Capture", this);
 
+    KStarsData::Instance()->userdb()->GetAllDSLRInfos(DSLRInfos);
+
     dirPath = QUrl::fromLocalFile(QDir::homePath());
 
     //isAutoGuiding   = false;
@@ -75,11 +77,10 @@ Capture::Capture()
     pauseB->setIcon(QIcon::fromTheme("media-playback-pause", QIcon(":/icons/breeze/default/media-playback-pause.svg")));
     pauseB->setAttribute(Qt::WA_LayoutUsesWidgetRect);
 
-    filterOffsetB->setIcon(QIcon::fromTheme("view-filter", QIcon(":/icons/breeze/default/view-filter.svg")));
-    connect(filterOffsetB, SIGNAL(clicked()), this, SLOT(showFilterOffsetDialog()));
-    filterOffsetB->setAttribute(Qt::WA_LayoutUsesWidgetRect);
+    filterManagerB->setIcon(QIcon::fromTheme("view-filter", QIcon(":/icons/breeze/default/view-filter.svg")));
+    filterManagerB->setAttribute(Qt::WA_LayoutUsesWidgetRect);
 
-    FilterCaptureCombo->addItem("--");
+    FilterDevicesCombo->addItem("--");
 
     connect(binXIN, SIGNAL(valueChanged(int)), binYIN, SLOT(setValue(int)));
 
@@ -91,7 +92,18 @@ Capture::Capture()
     guideDeviationTimer.setInterval(GD_TIMER_TIMEOUT);
     connect(&guideDeviationTimer, SIGNAL(timeout()), this, SLOT(checkGuideDeviationTimeout()));
 
-    connect(FilterCaptureCombo, SIGNAL(activated(int)), this, SLOT(checkFilter(int)));
+    connect(FilterDevicesCombo, SIGNAL(activated(int)), this, SLOT(checkFilter(int)));
+
+    connect(temperatureCheck, &QCheckBox::toggled, [this](bool toggled)
+    {
+        if (currentCCD)
+        {
+            QVariantMap auxInfo = currentCCD->getDriverInfo()->getAuxInfo();
+            auxInfo[QString("%1_TC").arg(currentCCD->getDeviceName())] = toggled;
+            currentCCD->getDriverInfo()->setAuxInfo(auxInfo);
+        }
+
+    });
 
     connect(previewB, SIGNAL(clicked()), this, SLOT(captureOne()));
 
@@ -155,7 +167,6 @@ Capture::Capture()
     refocusEveryNCheck->setChecked(Options::enforceRefocusEveryN());
     meridianCheck->setChecked(Options::autoMeridianFlip());
     meridianHours->setValue(Options::autoMeridianHours());
-    useFITSViewerInCapture->setChecked(Options::useFITSViewerInCapture());
 
     connect(autofocusCheck, SIGNAL(toggled(bool)), this, SLOT(setDirty()));
     connect(refocusEveryNCheck, SIGNAL(toggled(bool)), this, SLOT(setDirty()));
@@ -182,8 +193,15 @@ Capture::Capture()
     customPropertiesDialog.reset(new CustomProperties());
     connect(customValuesB, SIGNAL(clicked()), customPropertiesDialog.get(), SLOT(show()));
 
-    // Load FIlter Offets
-    loadFilterOffsets();
+    flatFieldSource = static_cast<FlatFieldSource>(Options::calibrationFlatSourceIndex());
+    flatFieldDuration = static_cast<FlatFieldDuration>(Options::calibrationFlatDurationIndex());
+    wallCoord.setAz(Options::calibrationWallAz());
+    wallCoord.setAlt(Options::calibrationWallAlt());
+    targetADU = Options::calibrationADUValue();
+    targetADUTolerance = Options::calibrationADUValueTolerance();
+
+    // Load FIlter Offets    
+    //loadFilterOffsets();
 }
 
 Capture::~Capture()
@@ -230,15 +248,15 @@ void Capture::addFilter(ISD::GDInterface *newFilter)
             return;
     }
 
-    FilterCaptureCombo->addItem(newFilter->getDeviceName());
+    FilterDevicesCombo->addItem(newFilter->getDeviceName());
 
     Filters.append(static_cast<ISD::Filter *>(newFilter));
 
-    filterOffsetB->setEnabled(true);
+    filterManagerB->setEnabled(true);
 
     checkFilter(1);
 
-    FilterCaptureCombo->setCurrentIndex(1);
+    FilterDevicesCombo->setCurrentIndex(1);
 }
 
 void Capture::pause()
@@ -295,8 +313,7 @@ void Capture::start()
     Options::setEnforceRefocusEveryN(refocusEveryNCheck->isChecked());
 
     Options::setAutoMeridianFlip(meridianCheck->isChecked());
-    Options::setAutoMeridianHours(meridianHours->value());
-    Options::setUseFITSViewerInCapture(useFITSViewerInCapture->isChecked());
+    Options::setAutoMeridianHours(meridianHours->value());    
 
     if (queueTable->rowCount() == 0)
     {
@@ -342,6 +359,9 @@ void Capture::start()
     deviationDetected = false;
     spikeDetected     = false;
 
+
+    // FIXME Migrate to Filter Manager
+#if 0
     lastFilterOffset = 0;
     // lastFilterOffset should be set to the offset of the current used filter so that any subsequent filter change
     // is made against this startup value
@@ -357,6 +377,7 @@ void Capture::start()
             }
         }
     }
+#endif
 
     ditherCounter     = Options::ditherFrames();
     initialHA         = getCurrentHA();
@@ -552,12 +573,15 @@ void Capture::checkCCD(int ccdNum)
                 temperatureIN->setMinimum(min);
                 temperatureIN->setMaximum(max);
                 temperatureIN->setSingleStep(1);
+                bool isChecked = currentCCD->getDriverInfo()->getAuxInfo().value(QString("%1_TC").arg(currentCCD->getDeviceName()), false).toBool();
+                temperatureCheck->setChecked(isChecked);
             }
             else
             {
                 setTemperatureB->setEnabled(false);
                 temperatureIN->setReadOnly(true);
                 temperatureCheck->setEnabled(false);
+                temperatureCheck->setChecked(false);
             }
 
             double temperature = 0;
@@ -623,11 +647,11 @@ void Capture::checkCCD(int ccdNum)
 
             double pixelX = 0, pixelY = 0;
             bool rc = targetChip->getPixelSize(pixelX, pixelY);
-            if (rc == false || pixelX == 0 || pixelY == 0)
+            if (rc == false || pixelX == 0 || pixelY == 0 || isModelinDSLRInfo(QString(currentCCD->getDeviceName())) == false)
             {
                 DSLRInfo infoDialog(this, currentCCD);
                 infoDialog.exec();
-                //appendLogText(i18n("DSLR CCD Information is incomplete. Please update CCD Information in Image Info section in the INDI Control Panel."));
+                addDSLRInfo(QString(currentCCD->getDeviceName()), infoDialog.sensorMaxWidth, infoDialog.sensorMaxHeight, infoDialog.sensorPixelW, infoDialog.sensorPixelH);
             }
         }
 
@@ -797,6 +821,10 @@ void Capture::updateFrameProperties(int reset)
     else
         return;
 
+    // cull to camera limits, if there are any
+    if (useGuideHead == false)
+        cullToCameraLimits();
+
     if (reset == 1 || frameSettings.contains(targetChip) == false)
     {
         QVariantMap settings;
@@ -914,8 +942,8 @@ bool Capture::setFilter(QString device, int filterSlot)
 {
     bool deviceFound = false;
 
-    for (int i = 1; i < FilterCaptureCombo->count(); i++)
-        if (device == FilterCaptureCombo->itemText(i))
+    for (int i = 1; i < FilterDevicesCombo->count(); i++)
+        if (device == FilterDevicesCombo->itemText(i))
         {
             checkFilter(i);
             deviceFound = true;
@@ -925,8 +953,8 @@ bool Capture::setFilter(QString device, int filterSlot)
     if (deviceFound == false)
         return false;
 
-    if (filterSlot < FilterCaptureCombo->count())
-        FilterCaptureCombo->setCurrentIndex(filterSlot);
+    if (filterSlot < FilterDevicesCombo->count())
+        FilterDevicesCombo->setCurrentIndex(filterSlot);
 
     return true;
 }
@@ -935,61 +963,40 @@ void Capture::checkFilter(int filterNum)
 {
     if (filterNum == -1)
     {
-        filterNum = FilterCaptureCombo->currentIndex();
+        filterNum = FilterDevicesCombo->currentIndex();
         if (filterNum == -1)
             return;
     }
 
+    // "--" is no filter
     if (filterNum == 0)
     {
         currentFilter = nullptr;
-        filterSlot = nullptr;
         currentFilterPosition=-1;
         FilterPosCombo->clear();
         syncFilterInfo();
         return;
-    }
-
-    QStringList filterAlias = Options::filterAlias();
+    }    
 
     if (filterNum <= Filters.count())
         currentFilter = Filters.at(filterNum-1);
+
+    filterManager->setCurrentFilter(currentFilter);
 
     syncFilterInfo();
 
     FilterPosCombo->clear();
 
-    filterName = currentFilter->getBaseDevice()->getText("FILTER_NAME");
-    filterSlot = currentFilter->getBaseDevice()->getNumber("FILTER_SLOT");
+    FilterPosCombo->addItems(filterManager->getFilterLabels());
 
-    if (filterSlot == nullptr)
-    {
-        KMessageBox::error(0, i18n("Unable to find FILTER_SLOT property in driver %1",
-                                   currentFilter->getBaseDevice()->getDeviceName()));
-        return;
-    }
+    currentFilterPosition = filterManager->getFilterPosition();
 
-    for (int i = 0; i < filterSlot->np[0].max; i++)
-    {
-        QString item;
+    FilterPosCombo->setCurrentIndex(currentFilterPosition-1);
 
-        if (filterName != nullptr && (i < filterName->ntp))
-            item = filterName->tp[i].text;
-        else if (i < filterAlias.count() && filterAlias[i].isEmpty() == false)
-            item = filterAlias.at(i);
-        else
-            item = QString("Filter_%1").arg(i + 1);
 
-        FilterPosCombo->addItem(item);
-    }
-
-    FilterPosCombo->setCurrentIndex((int)filterSlot->np[0].value - 1);
-
-    currentFilterPosition = (int)filterSlot->np[0].value;
-
-    if (activeJob &&
+    /*if (activeJob &&
         (activeJob->getStatus() == SequenceJob::JOB_ABORTED || activeJob->getStatus() == SequenceJob::JOB_IDLE))
-        activeJob->setCurrentFilter(currentFilterPosition);
+        activeJob->setCurrentFilter(currentFilterPosition);*/
 }
 
 void Capture::syncFilterInfo()
@@ -1052,6 +1059,7 @@ void Capture::newFITS(IBLOB *bp)
     {
         if (bp == nullptr)
         {
+            appendLogText(i18n("Failed to save file to %1", activeJob->getLocalDir() + activeJob->getDirectoryPostfix()));
             abort();
             return;
         }
@@ -1155,6 +1163,14 @@ bool Capture::setCaptureComplete()
 
     currentImgCountOUT->setText(QString::number(seqCurrentCount));
 
+    // Check if we need to execute post capture script first
+    if (activeJob->getPostCaptureScript().isEmpty() == false)
+    {
+        postCaptureScript.start(activeJob->getPostCaptureScript());
+        appendLogText(i18n("Executing post capture script %1", activeJob->getPostCaptureScript()));
+        return true;
+    }
+
     // if we're done
     if (seqCurrentCount >= seqTotalCount)
     {
@@ -1166,15 +1182,7 @@ bool Capture::setCaptureComplete()
     if (checkMeridianFlip())
         return true;
 
-    if (activeJob->getPostCaptureScript().isEmpty() == false)
-    {
-        postCaptureScript.start(activeJob->getPostCaptureScript());
-        appendLogText(i18n("Executing post capture script %1", activeJob->getPostCaptureScript()));
-    }
-    else
-        resumeSequence();
-
-    return true;
+    return resumeSequence();
 }
 
 void Capture::processJobCompletion()
@@ -1255,7 +1263,7 @@ bool Capture::resumeSequence()
     // Otherwise, let's prepare for next exposure after making sure in-sequence focus and dithering are complete if applicable.
     else
     {
-        isAutoFocus = (autofocusCheck->isEnabled() && autofocusCheck->isChecked() && HFRPixels->value() > 0);
+        isAutoFocus = (autofocusCheck->isEnabled() && autofocusCheck->isChecked()/* && HFRPixels->value() > 0*/);
         if (isAutoFocus)
             requiredAutoFocusStarted = false;
 
@@ -1285,7 +1293,8 @@ bool Capture::resumeSequence()
         }
 
         // Dither either when guiding or IF Non-Guide either option is enabled
-        if ( (guideState == GUIDE_GUIDING || Options::ditherNoGuiding()) && Options::ditherEnabled() && activeJob->getFrameType() == FRAME_LIGHT &&
+        // 2017-09-20 Jasem: No need to dither after post meridian flip guiding
+        if ( meridianFlipStage != MF_GUIDING && (guideState == GUIDE_GUIDING || Options::ditherNoGuiding()) && Options::ditherEnabled() && activeJob->getFrameType() == FRAME_LIGHT &&
             --ditherCounter == 0)
         {
             ditherCounter = Options::ditherFrames();
@@ -1312,7 +1321,10 @@ bool Capture::resumeSequence()
         else if (isAutoFocus && activeJob->getFrameType() == FRAME_LIGHT)
         {
             secondsLabel->setText(i18n("Focusing..."));
-            emit checkFocus(HFRPixels->value());
+            if (HFRPixels->value() == 0)
+                emit checkFocus(0.1);
+            else
+                emit checkFocus(HFRPixels->value());
 
             qCDebug(KSTARS_EKOS_CAPTURE) << "In-sequence focusing started...";
 
@@ -1327,8 +1339,7 @@ bool Capture::resumeSequence()
 }
 
 void Capture::captureOne()
-{
-    Options::setUseFITSViewerInCapture(useFITSViewerInCapture->isChecked());
+{    
 
     //if (currentCCD->getUploadMode() == ISD::CCD::UPLOAD_LOCAL)
     /*if (uploadModeCombo->currentIndex() != ISD::CCD::UPLOAD_CLIENT)
@@ -1370,9 +1381,16 @@ void Capture::captureImage()
         return;
     }
 
+    /*
     if (filterSlot != nullptr)
     {
         currentFilterPosition = (int)filterSlot->np[0].value;
+        activeJob->setCurrentFilter(currentFilterPosition);
+    }*/
+
+    if (currentFilter != nullptr)
+    {
+        currentFilterPosition = filterManager->getFilterPosition();
         activeJob->setCurrentFilter(currentFilterPosition);
     }
 
@@ -1415,7 +1433,7 @@ void Capture::captureImage()
 
     if (currentCCD->getUploadMode() != ISD::CCD::UPLOAD_LOCAL)
     {
-        checkSeqBoundary(activeJob->getFITSDir());
+        checkSeqBoundary(activeJob->getLocalDir() + activeJob->getDirectoryPostfix());
         currentCCD->setNextSequenceID(nextSequenceID);
     }
 
@@ -1673,19 +1691,13 @@ void Capture::updateCCDTemperature(double value)
 
 void Capture::updateRotatorNumber(INumberVectorProperty *nvp)
 {
-    if (!strcmp(nvp->name, "ABS_ROTATOR_POSITION"))
-    {
-        // Update widget rotator position
-        rotatorSettings->setTicksMinMaxStep(static_cast<int32_t>(nvp->np[0].min), static_cast<int32_t>(nvp->np[0].max), static_cast<int32_t>(nvp->np[0].step));
-        rotatorSettings->setCurrentTicks(static_cast<int32_t>(nvp->np[0].value));
-
-        if (activeJob && (activeJob->getStatus() == SequenceJob::JOB_ABORTED || activeJob->getStatus() == SequenceJob::JOB_IDLE))
-            activeJob->setCurrentRotation(static_cast<int32_t>(nvp->np[0].value));
-    }
-    else if (!strcmp(nvp->name, "ABS_ROTATOR_ANGLE"))
+    if (!strcmp(nvp->name, "ABS_ROTATOR_ANGLE"))
     {
         // Update widget rotator position
         rotatorSettings->setCurrentAngle(nvp->np[0].value);
+
+        if (activeJob && (activeJob->getStatus() == SequenceJob::JOB_ABORTED || activeJob->getStatus() == SequenceJob::JOB_IDLE))
+            activeJob->setCurrentRotation(rotatorSettings->getCurrentRotationPA());
     }
 }
 
@@ -1706,10 +1718,19 @@ bool Capture::addJob(bool preview)
         return false;
     }
 
+    if (uploadModeCombo->currentIndex() != ISD::CCD::UPLOAD_LOCAL && fitsDir->text().isEmpty())
+    {
+        KMessageBox::error(this, i18n("You must set local directory for Client & Both modes."));
+        return false;
+    }
+
     if (jobUnderEdit)
         job = jobs.at(queueTable->currentRow());
     else
+    {
         job = new SequenceJob();
+        job->setFilterManager(filterManager);
+    }
 
     if (job == nullptr)
     {
@@ -1736,7 +1757,6 @@ bool Capture::addJob(bool preview)
     job->setCaptureFilter((FITSScale)filterCombo->currentIndex());
 
     job->setUploadMode(static_cast<ISD::CCD::UploadMode>(uploadModeCombo->currentIndex()));
-    job->setRemoteDir(remoteDirIN->text());
     job->setPostCaptureScript(postCaptureScriptIN->text());
     job->setFlatFieldDuration(flatFieldDuration);
     job->setFlatFieldSource(flatFieldSource);
@@ -1755,7 +1775,8 @@ bool Capture::addJob(bool preview)
     job->setFrameType(static_cast<CCDFrameType>(frameTypeCombo->currentIndex()));
     job->setFullPrefix(imagePrefix);
 
-    if (filterSlot != nullptr && currentFilter != nullptr)
+    //if (filterSlot != nullptr && currentFilter != nullptr)
+    if (FilterPosCombo->currentIndex() != -1 && currentFilter != nullptr)
         job->setTargetFilter(FilterPosCombo->currentIndex() + 1, FilterPosCombo->currentText());
 
     job->setExposure(exposureIN->value());
@@ -1776,13 +1797,13 @@ bool Capture::addJob(bool preview)
     if (currentRotator && rotatorSettings->isRotationEnforced())
     {
         job->setActiveRotator(currentRotator);
-        job->setTargetRotation(rotatorSettings->getTargetRotationTicks());
-        job->setCurrentRotation(rotatorSettings->getCurrentRotationTicks());
+        job->setTargetRotation(rotatorSettings->getTargetRotationPA());
+        job->setCurrentRotation(rotatorSettings->getCurrentRotationPA());
     }
 
     job->setFrame(frameXIN->value(), frameYIN->value(), frameWIN->value(), frameHIN->value());
-
-    job->setRootFITSDir(fitsDir->text());
+    job->setRemoteDir(remoteDirIN->text());
+    job->setLocalDir(fitsDir->text());
 
     if (jobUnderEdit == false)
     {
@@ -1793,17 +1814,16 @@ bool Capture::addJob(bool preview)
             return true;
     }
 
-    QString finalFITSDir = fitsDir->text();
+    QString directoryPostfix;
 
     if (targetName.isEmpty())
-        finalFITSDir += QLatin1Literal("/") + frameTypeCombo->currentText();
+        directoryPostfix = QLatin1Literal("/") + frameTypeCombo->currentText();
     else
-        finalFITSDir += QLatin1Literal("/") + targetName + QLatin1Literal("/") + frameTypeCombo->currentText();
-    if ((job->getFrameType() == FRAME_LIGHT || job->getFrameType() == FRAME_FLAT) &&
-        job->getFilterName().isEmpty() == false)
-        finalFITSDir += QLatin1Literal("/") + job->getFilterName();
+        directoryPostfix = QLatin1Literal("/") + targetName + QLatin1Literal("/") + frameTypeCombo->currentText();
+    if ((job->getFrameType() == FRAME_LIGHT || job->getFrameType() == FRAME_FLAT) &&  job->getFilterName().isEmpty() == false)
+        directoryPostfix += QLatin1Literal("/") + job->getFilterName();
 
-    job->setFITSDir(finalFITSDir);
+    job->setDirectoryPostfix(directoryPostfix);
 
     int currentRow = 0;
     if (jobUnderEdit == false)
@@ -2056,13 +2076,13 @@ void Capture::prepareJob(SequenceJob *job)
         imgProgress->setValue(seqCurrentCount);
 
         if (currentCCD->getUploadMode() != ISD::CCD::UPLOAD_LOCAL)
-            updateSequencePrefix(activeJob->getFullPrefix(), activeJob->getFITSDir());
+            updateSequencePrefix(activeJob->getFullPrefix(), activeJob->getLocalDir() + activeJob->getDirectoryPostfix());
     }
 
     // We check if the job is already fully or partially complete by checking how many files of its type exist on the file system unless ignoreJobProgress is set to true
     if (ignoreJobProgress == false && activeJob->isPreview() == false)
     {
-        checkSeqBoundary(activeJob->getFITSDir());
+        checkSeqBoundary(activeJob->getLocalDir() + activeJob->getDirectoryPostfix());
 
         if (seqFileCount > 0)
         {
@@ -2109,7 +2129,7 @@ void Capture::prepareJob(SequenceJob *job)
     // Just notification of active job stating up
     emit newImage(nullptr, activeJob);
 
-    connect(job, SIGNAL(checkFocus()), this, SLOT(startPostFilterAutoFocus()));
+    //connect(job, SIGNAL(checkFocus()), this, SLOT(startPostFilterAutoFocus()));
 
     // Reset calibration stage
     if (calibrationStage == CAL_CAPTURING)
@@ -2132,7 +2152,7 @@ void Capture::prepareJob(SequenceJob *job)
     if (currentFilterPosition > 0)
     {
         // If we haven't performed a single autofocus yet, we stop
-        if (Options::autoFocusOnFilterChange() && (isAutoFocus == false && firstAutoFocus == true))
+        if (!job->isPreview() && Options::autoFocusOnFilterChange() && (isAutoFocus == false && firstAutoFocus == true))
         {
             appendLogText(i18n(
                 "Manual focusing post filter change is not supported. Run Autofocus process before trying again."));
@@ -2140,6 +2160,7 @@ void Capture::prepareJob(SequenceJob *job)
             return;
         }
 
+        /*
         if (currentFilterPosition != activeJob->getTargetFilter() && filterFocusOffsets.empty() == false)
         {
             int16_t targetFilterOffset = 0;
@@ -2172,6 +2193,7 @@ void Capture::prepareJob(SequenceJob *job)
                 return;
             }
         }
+        */
     }
 
     preparePreCaptureActions();
@@ -2179,66 +2201,50 @@ void Capture::prepareJob(SequenceJob *job)
 
 void Capture::preparePreCaptureActions()
 {
+    // Update position
     if (currentFilterPosition > 0)
-    {
         activeJob->setCurrentFilter(currentFilterPosition);
 
-        if (currentFilterPosition != activeJob->getTargetFilter())
-        {
-            appendLogText(i18n("Changing filter to %1...", FilterPosCombo->itemText(activeJob->getTargetFilter() - 1)));
-            secondsLabel->setText(i18n("Set filter..."));
-
-            if (activeJob->isPreview() == false)
-            {
-                state = CAPTURE_CHANGING_FILTER;
-                emit newStatus(Ekos::CAPTURE_CHANGING_FILTER);
-            }
-
-            setBusy(true);
-        }
-    }
-
+    // update temperature
     if (currentCCD->hasCooler() && activeJob->getEnforceTemperature())
     {
-        if (activeJob->getCurrentTemperature() != INVALID_VALUE &&
-            fabs(activeJob->getCurrentTemperature() - activeJob->getTargetTemperature()) >
-                Options::maxTemperatureDiff())
-        {
-            appendLogText(i18n("Setting temperature to %1 C...", activeJob->getTargetTemperature()));
-            secondsLabel->setText(i18n("Set %1 C...", activeJob->getTargetTemperature()));
-
-            if (activeJob->isPreview() == false)
-            {
-                state = CAPTURE_SETTING_TEMPERATURE;
-                emit newStatus(Ekos::CAPTURE_SETTING_TEMPERATURE);
-            }
-
-            setBusy(true);
-        }
+        double temperature = 0;
+        currentCCD->getTemperature(&temperature);
+        activeJob->setCurrentTemperature(temperature);
     }
 
-    if (activeJob->getTargetRotation() != INVALID_VALUE)
-    {
-        activeJob->setCurrentRotation(rotatorSettings->getCurrentRotationTicks());
+    // update rotator angle
+    if (currentRotator != nullptr && activeJob->getTargetRotation() != INVALID_VALUE)
+        activeJob->setCurrentRotation(rotatorSettings->getCurrentRotationPA());
 
-        if (rotatorSettings->getCurrentRotationTicks() != activeJob->getTargetRotation())
-        {
-            appendLogText(i18n("Setting rotation to %1 ticks...", activeJob->getTargetRotation()));
-            secondsLabel->setText(i18n("Set Rotator %1...", activeJob->getTargetRotation()));
-
-            if (activeJob->isPreview() == false)
-            {
-                state = CAPTURE_SETTING_ROTATOR;
-                emit newStatus(Ekos::CAPTURE_SETTING_ROTATOR);
-            }
-
-            setBusy(true);
-        }
-    }
-
+    setBusy(true);
+    connect(activeJob, SIGNAL(prepareState(Ekos::CaptureState)), this, SLOT(updatePrepareState(Ekos::CaptureState)));
     connect(activeJob, SIGNAL(prepareComplete()), this, SLOT(executeJob()));
 
     activeJob->prepareCapture();
+}
+
+void Capture::updatePrepareState(Ekos::CaptureState prepareState)
+{
+    state = prepareState;
+    emit newStatus(prepareState);
+
+    switch (prepareState)
+    {
+        case CAPTURE_SETTING_TEMPERATURE:
+        appendLogText(i18n("Setting temperature to %1 C...", activeJob->getTargetTemperature()));
+        secondsLabel->setText(i18n("Set %1 C...", activeJob->getTargetTemperature()));
+        break;
+
+       case CAPTURE_SETTING_ROTATOR:
+        appendLogText(i18n("Setting rotation to %1 degrees E of N...", activeJob->getTargetRotation()));
+        secondsLabel->setText(i18n("Set Rotator %1...", activeJob->getTargetRotation()));
+        break;
+
+    default:
+        break;
+
+    }
 }
 
 void Capture::executeJob()
@@ -2272,7 +2278,10 @@ void Capture::executeJob()
 
     syncGUIToJob(activeJob);
 
-    // Check flat field frame requirements
+    updatePreCaptureCalibrationStatus();
+
+    // Check calibration frame requirements
+#if 0
     if (activeJob->getFrameType() != FRAME_LIGHT && activeJob->isPreview() == false)
     {
         updatePreCaptureCalibrationStatus();
@@ -2280,6 +2289,7 @@ void Capture::executeJob()
     }
 
     captureImage();
+#endif
 }
 
 void Capture::updatePreCaptureCalibrationStatus()
@@ -2307,7 +2317,7 @@ void Capture::updatePreCaptureCalibrationStatus()
 
 void Capture::setGuideDeviation(double delta_ra, double delta_dec)
 {
-    if (guideDeviationCheck->isChecked() == false || activeJob == nullptr)
+    if (activeJob == nullptr)
         return;
 
     // If guiding is started after a meridian flip we will start getting guide deviations again
@@ -2315,7 +2325,9 @@ void Capture::setGuideDeviation(double delta_ra, double delta_dec)
     if (meridianFlipStage == MF_GUIDING)
     {
         double deviation_rms = sqrt(delta_ra * delta_ra + delta_dec * delta_dec);
-        if (deviation_rms < guideDeviation->value())
+        // If the user didn't select any guiding deviation, we fall through
+        // otherwise we can for deviation RMS
+        if (guideDeviationCheck->isChecked() == false || deviation_rms < guideDeviation->value())
         {
             initialHA = getCurrentHA();
             appendLogText(i18n("Post meridian flip calibration completed successfully."));
@@ -2327,7 +2339,7 @@ void Capture::setGuideDeviation(double delta_ra, double delta_dec)
     }
 
     // We don't enforce limit on previews
-    if (activeJob->isPreview() || activeJob->getExposeLeft() == 0)
+    if (guideDeviationCheck->isChecked() == false || activeJob->isPreview() || activeJob->getExposeLeft() == 0)
         return;
 
     double deviation_rms = sqrt(delta_ra * delta_ra + delta_dec * delta_dec);
@@ -2345,11 +2357,18 @@ void Capture::setGuideDeviation(double delta_ra, double delta_dec)
                 return;
             }
 
-            spikeDetected     = false;
-            deviationDetected = true;
             appendLogText(i18n("Guiding deviation %1 exceeded limit value of %2 arcsecs, aborting exposure.",
                                deviationText, guideDeviation->value()));
             abort();
+
+            spikeDetected     = false;
+
+            // Check if we need to start meridian flip
+            if (checkMeridianFlip())
+                return;
+
+            deviationDetected = true;
+
             guideDeviationTimer.start();
         }
         return;
@@ -2412,7 +2431,7 @@ void Capture::setFocusStatus(FocusState state)
     {
         if (focusState == FOCUS_COMPLETE)
         {
-            HFRPixels->setValue(focusHFR + (focusHFR * 0.025));
+            //HFRPixels->setValue(focusHFR + (focusHFR * 0.025));
             appendLogText(i18n("Focus complete."));
         }
         else if (focusState == FOCUS_FAILED)
@@ -2420,9 +2439,7 @@ void Capture::setFocusStatus(FocusState state)
             appendLogText(i18n("Autofocus failed. Aborting exposure..."));
             secondsLabel->setText("");
             abort();
-        }
-
-        activeJob->setFilterPostFocusReady(focusState == FOCUS_COMPLETE);
+        }        
         return;
     }
 
@@ -2445,14 +2462,13 @@ void Capture::setFocusStatus(FocusState state)
 void Capture::setRotator(ISD::GDInterface *newRotator)
 {
     currentRotator = newRotator;
-    connect(currentRotator, SIGNAL(numberUpdated(INumberVectorProperty*)), this, SLOT(updateRotatorNumber(INumberVectorProperty*)), Qt::UniqueConnection);
+    connect(currentRotator, SIGNAL(numberUpdated(INumberVectorProperty*)), this, SLOT(updateRotatorNumber(INumberVectorProperty*)), Qt::UniqueConnection);    
     rotatorB->setEnabled(true);
 
     rotatorSettings->setRotator(newRotator);
 
-    INumberVectorProperty *nvp = newRotator->getBaseDevice()->getNumber("ABS_ROTATOR_POSITION");
-    rotatorSettings->setTicksMinMaxStep(static_cast<int32_t>(nvp->np[0].min), static_cast<int32_t>(nvp->np[0].max), static_cast<int32_t>(nvp->np[0].step));
-    rotatorSettings->setCurrentTicks(static_cast<int32_t>(nvp->np[0].value));
+    INumberVectorProperty *nvp = newRotator->getBaseDevice()->getNumber("ABS_ROTATOR_ANGLE");
+    rotatorSettings->setCurrentAngle(nvp->np[0].value);
 }
 
 void Capture::setTelescope(ISD::GDInterface *newTelescope)
@@ -2470,17 +2486,20 @@ void Capture::setTelescope(ISD::GDInterface *newTelescope)
 
 void Capture::syncTelescopeInfo()
 {
-    if (currentCCD && currentTelescope && currentTelescope->isConnected())
+    if (currentTelescope && currentTelescope->isConnected())
     {
-        ITextVectorProperty *activeDevices = currentCCD->getBaseDevice()->getText("ACTIVE_DEVICES");
-        if (activeDevices)
+        // Sync ALL CCDs to current telescope
+        for (ISD::CCD *oneCCD : CCDs)
         {
-            IText *activeTelescope = IUFindText(activeDevices, "ACTIVE_TELESCOPE");
-            if (activeTelescope)
+            ITextVectorProperty *activeDevices = oneCCD->getBaseDevice()->getText("ACTIVE_DEVICES");
+            if (activeDevices)
             {
-                IUSaveText(activeTelescope, currentTelescope->getDeviceName());
-
-                currentCCD->getDriverInfo()->getClientManager()->sendNewText(activeDevices);
+                IText *activeTelescope = IUFindText(activeDevices, "ACTIVE_TELESCOPE");
+                if (activeTelescope)
+                {
+                    IUSaveText(activeTelescope, currentTelescope->getDeviceName());
+                    oneCCD->getDriverInfo()->getClientManager()->sendNewText(activeDevices);
+                }
             }
         }
     }
@@ -2622,7 +2641,7 @@ bool Capture::loadSequenceQueue(const QString &fileURL)
                 }
                 else if (!strcmp(tagXMLEle(ep), "FilterWheel"))
                 {
-                    FilterCaptureCombo->setCurrentText(pcdataXMLEle(ep));
+                    FilterDevicesCombo->setCurrentText(pcdataXMLEle(ep));
                     checkFilter();
                 }
                 else
@@ -2754,7 +2773,7 @@ bool Capture::processJobInfo(XMLEle *root)
         else if (!strcmp(tagXMLEle(ep), "Rotation"))
         {
             rotatorSettings->setRotationEnforced(true);
-            rotatorSettings->setTargetRotationTicks(atoi(pcdataXMLEle(ep)));
+            rotatorSettings->setTargetRotationPA(atof(pcdataXMLEle(ep)));
         }
         else if (!strcmp(tagXMLEle(ep), "Properties"))
         {
@@ -2943,7 +2962,7 @@ bool Capture::saveSequenceQueue(const QString &path)
     if (observerName.isEmpty() == false)
         outstream << "<Observer>" << observerName << "</Observer>" << endl;
     outstream << "<CCD>" << CCDCaptureCombo->currentText() << "</CCD>" << endl;
-    outstream << "<FilterWheel>" << FilterCaptureCombo->currentText() << "</FilterWheel>" << endl;
+    outstream << "<FilterWheel>" << FilterDevicesCombo->currentText() << "</FilterWheel>" << endl;
     outstream << "<GuideDeviation enabled='" << (guideDeviationCheck->isChecked() ? "true" : "false") << "'>"
               << guideDeviation->value() << "</GuideDeviation>" << endl;
     outstream << "<Autofocus enabled='" << (autofocusCheck->isChecked() ? "true" : "false") << "'>"
@@ -2988,8 +3007,7 @@ bool Capture::saveSequenceQueue(const QString &path)
         outstream << "<Delay>" << job->getDelay() / 1000 << "</Delay>" << endl;
         if (job->getPostCaptureScript().isEmpty() == false)
             outstream << "<PostCaptureScript>" << job->getPostCaptureScript() << "</PostCaptureScript>" << endl;
-        QString rootDir = job->getRootFITSDir();
-        outstream << "<FITSDirectory>" << rootDir << "</FITSDirectory>" << endl;
+        outstream << "<FITSDirectory>" << job->getLocalDir() << "</FITSDirectory>" << endl;
         outstream << "<UploadMode>" << job->getUploadMode() << "</UploadMode>" << endl;
         if (job->getRemoteDir().isEmpty() == false)
             outstream << "<RemoteDirectory>" << job->getRemoteDir() << "</RemoteDirectory>" << endl;
@@ -3109,6 +3127,7 @@ void Capture::syncGUIToJob(SequenceJob *job)
     uploadModeCombo->setCurrentIndex(job->getUploadMode());
     remoteDirIN->setEnabled(uploadModeCombo->currentIndex() != 0);
     remoteDirIN->setText(job->getRemoteDir());
+    fitsDir->setText(job->getLocalDir());
 
     // Temperature Options
     temperatureCheck->setChecked(job->getEnforceTemperature());
@@ -3124,9 +3143,7 @@ void Capture::syncGUIToJob(SequenceJob *job)
     preDomePark        = job->isPreDomePark();
 
     // Custom Properties
-    customPropertiesDialog->setCustomProperties(job->getCustomProperties());
-
-    fitsDir->setText(job->getRootFITSDir());
+    customPropertiesDialog->setCustomProperties(job->getCustomProperties());    
 
     if (ISOCombo->isEnabled())
         ISOCombo->setCurrentIndex(job->getISOIndex());
@@ -3136,7 +3153,7 @@ void Capture::syncGUIToJob(SequenceJob *job)
     if (job->getTargetRotation() != INVALID_VALUE)
     {
         rotatorSettings->setRotationEnforced(true);
-        rotatorSettings->setTargetRotationTicks(job->getTargetRotation());
+        rotatorSettings->setTargetRotationPA(job->getTargetRotation());
     }
     else
         rotatorSettings->setRotationEnforced(false);
@@ -4011,15 +4028,65 @@ void Capture::openCalibrationDialog()
         preDomePark  = calibrationOptions.parkDomeC->isChecked();
 
         setDirty();
+
+        Options::setCalibrationFlatSourceIndex(flatFieldSource);
+        Options::setCalibrationFlatDurationIndex(flatFieldDuration);
+        Options::setCalibrationWallAz(wallCoord.az().Degrees());
+        Options::setCalibrationWallAlt(wallCoord.alt().Degrees());
+        Options::setCalibrationADUValue(targetADU);
+        Options::setCalibrationADUValueTolerance(targetADUTolerance);
     }
 }
 
 IPState Capture::processPreCaptureCalibrationStage()
 {
-    if (guideState == GUIDE_GUIDING)
+    if (activeJob->getFrameType() != FRAME_LIGHT && guideState == GUIDE_GUIDING)
     {
         appendLogText(i18n("Autoguiding suspended."));
         emit suspendGuiding();
+    }
+
+    // Unpark dust cap if we have to take light images.
+    if (activeJob->getFrameType() == FRAME_LIGHT && dustCap)
+    {
+        if (dustCap->isLightOn() == true)
+        {
+            dustCapLightEnabled = false;
+            dustCap->SetLightEnabled(false);
+        }
+
+        // If cap is not park, park it
+        if (calibrationStage < CAL_DUSTCAP_UNPARKING && dustCap->isParked())
+        {
+            if (dustCap->UnPark())
+            {
+                calibrationStage = CAL_DUSTCAP_UNPARKING;
+                appendLogText(i18n("Unparking dust cap..."));
+                return IPS_BUSY;
+            }
+            else
+            {
+                appendLogText(i18n("Unparking dust cap failed, aborting..."));
+                abort();
+                return IPS_ALERT;
+            }
+        }
+
+        // Wait until cap is unparked
+        if (calibrationStage == CAL_DUSTCAP_UNPARKING)
+        {
+            if (dustCap->isUnParked() == false)
+                return IPS_BUSY;
+            else
+            {
+                calibrationStage = CAL_DUSTCAP_UNPARKED;
+                appendLogText(i18n("Dust cap unparked."));
+            }
+        }
+
+        calibrationStage = CAL_PRECAPTURE_COMPLETE;
+
+        return IPS_OK;
     }
 
     // Let's check what actions to be taken, if any, for the flat field source
@@ -4029,8 +4096,8 @@ IPState Capture::processPreCaptureCalibrationStage()
         case SOURCE_DAWN_DUSK: // Not yet implemented
             break;
 
-        // Park cap, if not parked
-        // Turn on Light
+        // For Dark, Flat, Bias: Park cap, if not parked. Turn on Light For Flat. Turn off Light for Bias + Darks
+        // For Lights: Unpark cap and turn off light
         case SOURCE_FLATCAP:
             if (dustCap)
             {
@@ -4051,7 +4118,7 @@ IPState Capture::processPreCaptureCalibrationStage()
                     }
                 }
 
-                // Wait until  cap is parked
+                // Wait until cap is parked
                 if (calibrationStage == CAL_DUSTCAP_PARKING)
                 {
                     if (dustCap->isParked() == false)
@@ -4316,9 +4383,7 @@ bool Capture::processPostCaptureCalibrationStage()
                     seqPrefix = imagePrefix;
                     currentCCD->setSeqPrefix(imagePrefix);
 
-                    QString finalRemoteDir = activeJob->getFITSDir();
-                    finalRemoteDir.replace(activeJob->getRootFITSDir(), activeJob->getRemoteDir()).replace("//", "/");
-                    currentCCD->updateUploadSettings(finalRemoteDir);
+                    currentCCD->updateUploadSettings(activeJob->getRemoteDir() + activeJob->getDirectoryPostfix());
 
                     calibrationStage = CAL_CALIBRATION_COMPLETE;
                     startNextExposure();
@@ -4336,7 +4401,7 @@ bool Capture::processPostCaptureCalibrationStage()
             else
                 nextExposure = setCurrentADU(currentADU);
 
-            if (nextExposure <= 0)
+            if (nextExposure <= 0 || std::isnan(nextExposure))
             {
                 appendLogText(
                     i18n("Unable to calculate optimal exposure settings, please capture the flats manually."));
@@ -4345,6 +4410,9 @@ bool Capture::processPostCaptureCalibrationStage()
                 abort();
                 return false;
             }
+
+            // Limit to minimum and maximum values
+            nextExposure = qBound(exposureIN->minimum(), nextExposure, exposureIN->maximum());
 
             appendLogText(i18n("Current ADU is %1 Next exposure is %2 seconds.", QString::number(currentADU, 'f', 0),
                                QString::number(nextExposure, 'f', 3)));
@@ -4382,6 +4450,7 @@ void Capture::setNewRemoteFile(QString file)
     appendLogText(i18n("Remote image saved to %1", file));
 }
 
+/*
 void Capture::startPostFilterAutoFocus()
 {
     if (focusState >= FOCUS_PROGRESS || state == CAPTURE_FOCUSING)
@@ -4397,15 +4466,32 @@ void Capture::startPostFilterAutoFocus()
     // Force it to always run autofocus routine
     emit checkFocus(0.1);
 }
+*/
 
 void Capture::postScriptFinished(int exitCode)
 {
-    appendLogText(i18n("Post capture script finished with code %1. Resuming sequence...", exitCode));
+    appendLogText(i18n("Post capture script finished with code %1.", exitCode));
+
+    // if we're done
+    if (seqCurrentCount >= seqTotalCount)
+    {
+        processJobCompletion();
+        return;
+    }
+
+    // Check if meridian condition is met
+    if (checkMeridianFlip())
+        return;
+
+    appendLogText(i18n("Resuming sequence..."));
+    // Then just resume sequence.
     resumeSequence();
 }
 
+// FIXME Migrate to Filter Manager
+#if 0
 void Capture::loadFilterOffsets()
-{
+{    
     // Get all OAL equipment filter list
     KStarsData::Instance()->userdb()->GetAllFilters(m_filterList);
     filterFocusOffsets.clear();
@@ -4472,8 +4558,9 @@ void Capture::showFilterOffsetDialog()
 
         QLabel *label  = new QLabel(oneOffset->filter, &filterOffsetDialog);
         QSpinBox *spin = new QSpinBox(&filterOffsetDialog);
-        spin->setMinimum(-1000);
-        spin->setMaximum(1000);
+        spin->setMinimum(-10000);
+        spin->setMaximum(10000);
+        spin->setSingleStep(100);
         spin->setValue(oneOffset->offset);
 
         grid->addWidget(label, i, 0);
@@ -4500,6 +4587,7 @@ void Capture::showFilterOffsetDialog()
                 }
             }
 
+#if 0
             // If no filter exists, let's create one
             if (matchedFilter == nullptr)
             {
@@ -4513,9 +4601,11 @@ void Capture::showFilterOffsetDialog()
                                                             QString::number(oneOffset->offset), oneOffset->filter,
                                                             matchedFilter->exposure(), matchedFilter->id());
             }
+#endif
         }
     }
 }
+#endif
 
 void Capture::toggleVideoStream(bool enable)
 {
@@ -4635,6 +4725,145 @@ void Capture::restartRefocusEveryNTimer()
 int Capture::getRefocusEveryNTimerElapsedSec()
 {
     return refocusEveryNTimer.elapsed()/1000;
+}
+
+void Capture::setAlignResults(double orientation, double ra, double de, double pixscale)
+{
+    Q_UNUSED(orientation);
+    Q_UNUSED(ra);
+    Q_UNUSED(de);
+    Q_UNUSED(pixscale);
+
+    if (currentRotator == nullptr)
+        return;
+
+    rotatorSettings->refresh();
+}
+
+void Capture::setFilterManager(const QSharedPointer<FilterManager> &manager)
+{
+    filterManager = manager;
+    connect(filterManagerB, &QPushButton::clicked, [this]()
+    {
+        filterManager->show();
+        filterManager->raise();
+    });
+
+    connect(filterManager.data(), &FilterManager::ready, [this]()
+    {
+        currentFilterPosition = filterManager->getFilterPosition();
+        // Due to race condition,
+        focusState = FOCUS_IDLE;
+        if (activeJob)
+            activeJob->setCurrentFilter(currentFilterPosition);
+
+    }
+    );
+
+    connect(filterManager.data(), &FilterManager::failed, [this]()
+    {
+        if (activeJob)
+        {
+            appendLogText(i18n("Filter operation failed."));
+            abort();
+        }
+    }
+    );
+
+    connect(filterManager.data(), &FilterManager::newStatus, [this](Ekos::FilterState filterState)
+    {
+        if (state == CAPTURE_CHANGING_FILTER)
+        {
+            secondsLabel->setText(Ekos::getFilterStatusString(filterState));
+            switch (filterState)
+            {
+                case FILTER_OFFSET:
+                    appendLogText(i18n("Changing focus offset by %1 steps...", filterManager->getTargetFilterOffset()));
+                    break;
+
+                case FILTER_CHANGE:
+                    appendLogText(i18n("Changing filter to %1...", FilterPosCombo->itemText(filterManager->getTargetFilterPosition()-1)));
+                    break;
+
+                case FILTER_AUTOFOCUS:
+                    appendLogText(i18n("Auto focus on filter change..."));
+                    clearAutoFocusHFR();
+                    break;
+
+                default:
+                break;
+            }
+        }
+    });
+
+    connect(filterManager.data(), &FilterManager::labelsChanged, this, [this]()
+    {
+        FilterPosCombo->clear();
+        FilterPosCombo->addItems(filterManager->getFilterLabels());
+        currentFilterPosition = filterManager->getFilterPosition();
+        FilterPosCombo->setCurrentIndex(currentFilterPosition-1);
+    });
+    connect(filterManager.data(), &FilterManager::positionChanged, this, [this]()
+    {
+        currentFilterPosition = filterManager->getFilterPosition();
+        FilterPosCombo->setCurrentIndex(currentFilterPosition-1);
+    });
+}
+
+void Capture::addDSLRInfo(const QString &model, uint32_t maxW, uint32_t maxH, double pixelW, double pixelH)
+{
+    // Check if model already exists
+    auto pos = std::find_if(DSLRInfos.begin(), DSLRInfos.end(), [model](QMap<QString,QVariant> &oneDSLRInfo)
+    { return (oneDSLRInfo["Model"] == model);});
+
+    if (pos != DSLRInfos.end())
+    {
+        KStarsData::Instance()->userdb()->DeleteDSLRInfo(model);
+        DSLRInfos.removeOne(*pos);
+    }
+
+    QMap<QString, QVariant> oneDSLRInfo;
+    oneDSLRInfo["Model"] = model;
+    oneDSLRInfo["Width"] = maxW;
+    oneDSLRInfo["Height"] = maxH;
+    oneDSLRInfo["PixelW"] = pixelW;
+    oneDSLRInfo["PixelH"] = pixelH;
+
+    KStarsData::Instance()->userdb()->AddDSLRInfo(oneDSLRInfo);
+
+    KStarsData::Instance()->userdb()->GetAllDSLRInfos(DSLRInfos);
+}
+
+bool Capture::isModelinDSLRInfo(const QString &model)
+{
+    auto pos = std::find_if(DSLRInfos.begin(), DSLRInfos.end(), [model](QMap<QString,QVariant> &oneDSLRInfo)
+    { return (oneDSLRInfo["Model"] == model);});
+
+    return (pos != DSLRInfos.end());
+}
+
+void Capture::cullToCameraLimits()
+{
+    QString model(currentCCD->getDeviceName());
+
+    // Check if model already exists
+    auto pos = std::find_if(DSLRInfos.begin(), DSLRInfos.end(), [model](QMap<QString,QVariant> &oneDSLRInfo)
+    { return (oneDSLRInfo["Model"] == model);});
+
+    if (pos != DSLRInfos.end())
+    {
+        if (frameWIN->maximum() == 0 || frameWIN->maximum() > (*pos)["Width"].toInt())
+        {
+            frameWIN->setValue((*pos)["Width"].toInt());
+            frameWIN->setMaximum((*pos)["Width"].toInt());
+        }
+
+        if (frameHIN->maximum() == 0 || frameHIN->maximum() > (*pos)["Height"].toInt())
+        {
+            frameHIN->setValue((*pos)["Height"].toInt());
+            frameHIN->setMaximum((*pos)["Height"].toInt());
+        }
+    }
 }
 
 }

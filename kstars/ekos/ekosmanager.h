@@ -29,6 +29,9 @@
 #include "indi/indistd.h"
 #include "mount/mount.h"
 #include "scheduler/scheduler.h"
+#include "auxiliary/filtermanager.h"
+// Can't use forward decleration with QPointer. QTBUG-29588
+#include "auxiliary/opslogs.h"
 
 #include <QDialog>
 #include <QHash>
@@ -80,7 +83,7 @@ class EkosManager : public QDialog, public Ui::EkosManager
 
     Ekos::Guide *guideModule() { return guideProcess.get(); }
     Ekos::Align *alignModule() { return alignProcess.get(); }
-    FITSView *getPreviewView() { return previewView.get(); }
+    FITSView *getSummaryPreview() { return summaryPreview.get(); }
     QString getCurrentJobName();
 
     /**
@@ -181,6 +184,10 @@ class EkosManager : public QDialog, public Ui::EkosManager
 
     //void processINDIModeChange();
     void checkINDITimeout();
+
+    // Logs
+    void updateDebugInterfaces();
+    void watchDebugProperty(ISwitchVectorProperty *svp);
 
     void setTelescope(ISD::GDInterface *);
     void setCCD(ISD::GDInterface *);
@@ -285,6 +292,9 @@ class EkosManager : public QDialog, public Ui::EkosManager
     std::unique_ptr<QStandardItemModel> profileModel;
     QList<std::shared_ptr<ProfileInfo>> profiles;
 
+    // Filter Manager
+    QSharedPointer<Ekos::FilterManager> filterManager;
+
     // Mount Summary
     QProgressIndicator *mountPI { nullptr };
 
@@ -296,7 +306,7 @@ class EkosManager : public QDialog, public Ui::EkosManager
 //    QPixmap *previewPixmap;
     QProgressIndicator *capturePI { nullptr };
     // Preview Frame
-    std::unique_ptr<FITSView> previewView;
+    std::unique_ptr<FITSView> summaryPreview;
 
     // Focus Summary
     QProgressIndicator *focusPI { nullptr };
@@ -314,4 +324,7 @@ class EkosManager : public QDialog, public Ui::EkosManager
 
     ProfileInfo *currentProfile { nullptr };
     bool profileWizardLaunched { false };
+
+    // Logs
+    QPointer<Ekos::OpsLogs> opsLogs;
 };

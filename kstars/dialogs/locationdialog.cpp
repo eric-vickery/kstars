@@ -20,6 +20,7 @@
 #include "kspaths.h"
 #include "kstarsdata.h"
 #include "kstars_debug.h"
+#include "ksutils.h"
 
 #include <QSqlQuery>
 
@@ -37,6 +38,8 @@
 #include <QQmlContext>
 #include <QSqlQuery>
 #include <QUrlQuery>
+#include <QPlainTextEdit>
+
 
 LocationDialogUI::LocationDialogUI(QWidget *parent) : QFrame(parent)
 {
@@ -88,6 +91,8 @@ LocationDialog::LocationDialog(QWidget *parent) : QDialog(parent), timer(nullptr
     connect(ld->NewCountryName, SIGNAL(textChanged(QString)), this, SLOT(nameChanged()));
     connect(ld->NewLong, SIGNAL(textChanged(QString)), this, SLOT(dataChanged()));
     connect(ld->NewLat, SIGNAL(textChanged(QString)), this, SLOT(dataChanged()));
+    connect(ld->NewElev, SIGNAL(valueChanged(double)), this, SLOT(dataChanged()));
+
     connect(ld->TZBox, SIGNAL(activated(int)), this, SLOT(dataChanged()));
     connect(ld->DSTRuleBox, SIGNAL(activated(int)), this, SLOT(dataChanged()));
     connect(ld->GeoBox, SIGNAL(itemSelectionChanged()), this, SLOT(changeCity()));
@@ -255,6 +260,7 @@ void LocationDialog::changeCity()
         ld->NewLong->showInDegrees(SelectedCity->lng());
         ld->NewLat->showInDegrees(SelectedCity->lat());
         ld->TZBox->setEditText(QLocale().toString(SelectedCity->TZ0()));
+        ld->NewElev->setValue(SelectedCity->elevation());
 
         //Pick the City's rule from the rulebook
         for (int i = 0; i < ld->DSTRuleBox->count(); ++i)
@@ -318,6 +324,7 @@ bool LocationDialog::updateCity(CityOperation operation)
     QString TimeZoneString = ld->TZBox->lineEdit()->text();
     TimeZoneString.replace(QLocale().decimalPoint(), ".");
     double TZ = TimeZoneString.toDouble(&tzOk);
+    double height          = ld->NewElev->value();
 
     if (ld->NewCityName->text().isEmpty() || ld->NewCountryName->text().isEmpty())
     {
@@ -333,8 +340,8 @@ bool LocationDialog::updateCity(CityOperation operation)
     }
     else if (!tzOk)
     {
-        QString message = i18n("Could not parse coordinates.");
-        KMessageBox::sorry(nullptr, message, i18n("Bad Coordinates"));
+        QString message = i18n("UTC Offset must be selected.");
+        KMessageBox::sorry(nullptr, message, i18n("UTC Offset"));
         return false;
     }
 
@@ -366,7 +373,9 @@ bool LocationDialog::updateCity(CityOperation operation)
                       "Latitude TEXT DEFAULT NULL, "
                       "Longitude TEXT DEFAULT NULL, "
                       "TZ REAL DEFAULT NULL, "
-                      "TZRule TEXT DEFAULT NULL)");
+                      "TZRule TEXT DEFAULT NULL,"
+                      "Elevation REAL NOT NULL DEFAULT -10 )");
+
         if (create_query.exec(query) == false)
         {
             qCWarning(KSTARS) << create_query.lastError();
@@ -384,6 +393,7 @@ bool LocationDialog::updateCity(CityOperation operation)
     QString province = ld->NewProvinceName->text().trimmed();
     QString country  = ld->NewCountryName->text().trimmed();
     QString TZrule   = ld->DSTRuleBox->currentText();
+    double Elevation = ld->NewElev->value();
     GeoLocation *g   = nullptr;
 
     switch (operation)
@@ -391,8 +401,8 @@ bool LocationDialog::updateCity(CityOperation operation)
         case CITY_ADD:
         {
             QSqlQuery add_query(mycitydb);
-            add_query.prepare("INSERT INTO city(Name, Province, Country, Latitude, Longitude, TZ, TZRule) "
-                              "VALUES(:Name, :Province, :Country, :Latitude, :Longitude, :TZ, :TZRule)");
+            add_query.prepare("INSERT INTO city(Name, Province, Country, Latitude, Longitude, TZ, TZRule, Elevation) "
+                              "VALUES(:Name, :Province, :Country, :Latitude, :Longitude, :TZ, :TZRule, :Elevation)");
             add_query.bindValue(":Name", name);
             add_query.bindValue(":Province", province);
             add_query.bindValue(":Country", country);
@@ -400,6 +410,7 @@ bool LocationDialog::updateCity(CityOperation operation)
             add_query.bindValue(":Longitude", lng.toDMSString());
             add_query.bindValue(":TZ", TZ);
             add_query.bindValue(":TZRule", TZrule);
+            add_query.bindValue(":Elevation", Elevation);
             if (add_query.exec() == false)
             {
                 qCWarning(KSTARS) << add_query.lastError();
@@ -407,7 +418,7 @@ bool LocationDialog::updateCity(CityOperation operation)
             }
 
             //Add city to geoList...don't need to insert it alphabetically, since we always sort GeoList
-            g = new GeoLocation(lng, lat, name, province, country, TZ, &KStarsData::Instance()->Rulebook[TZrule]);
+            g = new GeoLocation(lng, lat, name, province, country, TZ, &KStarsData::Instance()->Rulebook[TZrule], Elevation);
             KStarsData::Instance()->getGeoList().append(g);
         }
         break;
@@ -418,7 +429,7 @@ bool LocationDialog::updateCity(CityOperation operation)
 
             QSqlQuery update_query(mycitydb);
             update_query.prepare("UPDATE city SET Name = :newName, Province = :newProvince, Country = :newCountry, "
-                                 "Latitude = :Latitude, Longitude = :Longitude, TZ = :TZ, TZRule = :TZRule WHERE "
+                                 "Latitude = :Latitude, Longitude = :Longitude, TZ = :TZ, TZRule = :TZRule, Elevation = :Elevation WHERE "
                                  "Name = :Name AND Province = :Province AND Country = :Country");
             update_query.bindValue(":newName", name);
             update_query.bindValue(":newProvince", province);
@@ -430,6 +441,7 @@ bool LocationDialog::updateCity(CityOperation operation)
             update_query.bindValue(":Longitude", lng.toDMSString());
             update_query.bindValue(":TZ", TZ);
             update_query.bindValue(":TZRule", TZrule);
+            update_query.bindValue(":Elevation", Elevation);
             if (update_query.exec() == false)
             {
                 qCWarning(KSTARS) << update_query.lastError() << endl;
@@ -443,6 +455,8 @@ bool LocationDialog::updateCity(CityOperation operation)
             g->setLong(lng);
             g->setTZ(TZ);
             g->setTZRule(&KStarsData::Instance()->Rulebook[TZrule]);
+            g->setElevation(height);
+
         }
         break;
 
@@ -548,10 +562,14 @@ void LocationDialog::clearFields()
     ld->NewCountryName->clear();
     ld->NewLong->clearFields();
     ld->NewLat->clearFields();
-    ld->TZBox->lineEdit()->setText(QLocale().toString(0.0));
+    ld->NewElev->setValue(-10);    
+    ld->TZBox->setCurrentIndex(-1);
+    // JM 2017-09-16: No, let's not assume it is 0. User have to explicitly set TZ so avoid mistakes.
+    //ld->TZBox->lineEdit()->setText(QLocale().toString(0.0));
     ld->DSTRuleBox->setCurrentIndex(0);
     nameModified = true;
     dataModified = false;
+
     ld->AddCityButton->setEnabled(false);
     ld->UpdateButton->setEnabled(false);
     ld->NewCityName->setFocus();
@@ -559,52 +577,31 @@ void LocationDialog::clearFields()
 
 void LocationDialog::showTZRules()
 {
-    QStringList lines;
-    lines.append(i18n(" Start Date (Start Time)  /  Revert Date (Revert Time)"));
-    lines.append(" ");
-    lines.append(i18n("--: No DST correction"));
-    lines.append(i18n("AU: last Sun in Oct. (02:00) / last Sun in Mar. (02:00)"));
-    lines.append(i18n("BZ:  2nd Sun in Oct. (00:00) /  3rd Sun in Feb. (00:00)"));
-    lines.append(i18n("CH:  2nd Sun in Apr. (00:00) /  2nd Sun in Sep. (00:00)"));
-    lines.append(i18n("CL:  2nd Sun in Oct. (04:00) /  2nd Sun in Mar. (04:00)"));
-    lines.append(i18n("CZ:  1st Sun in Oct. (02:45) /  3rd Sun in Mar. (02:45)"));
-    lines.append(i18n("EE: Last Sun in Mar. (00:00) / Last Sun in Oct. (02:00)"));
-    lines.append(i18n("EG: Last Fri in Apr. (00:00) / Last Thu in Sep. (00:00)"));
-    lines.append(i18n("EU: Last Sun in Mar. (01:00) / Last Sun in Oct. (01:00)"));
-    lines.append(i18n("FK:  1st Sun in Sep. (02:00) /  3rd Sun in Apr. (02:00)"));
-    lines.append(i18n("HK:  2nd Sun in May  (03:30) /  3rd Sun in Oct. (03:30)"));
-    lines.append(i18n("IQ: Apr 1 (03:00) / Oct. 1 (00:00)"));
-    lines.append(i18n("IR: Mar 21 (00:00) / Sep. 22 (00:00)"));
-    lines.append(i18n("JD: Last Thu in Mar. (00:00) / Last Thu in Sep. (00:00)"));
-    lines.append(i18n("LB: Last Sun in Mar. (00:00) / Last Sun in Oct. (00:00)"));
-    lines.append(i18n("MX:  1st Sun in May  (02:00) / Last Sun in Sep. (02:00)"));
-    lines.append(i18n("NB:  1st Sun in Sep. (02:00) /  1st Sun in Apr. (02:00)"));
-    lines.append(i18n("NZ:  1st Sun in Oct. (02:00) /  3rd Sun in Mar. (02:00)"));
-    lines.append(i18n("PY:  1st Sun in Oct. (00:00) /  1st Sun in Mar. (00:00)"));
-    lines.append(i18n("RU: Last Sun in Mar. (02:00) / Last Sun in Oct. (02:00)"));
-    lines.append(i18n("SK:  2nd Sun in May  (00:00) /  2nd Sun in Oct. (00:00)"));
-    lines.append(i18n("SY: Apr. 1 (00:00) / Oct. 1 (00:00)"));
-    lines.append(i18n("TG:  1st Sun in Nov. (02:00) / Last Sun in Jan. (02:00)"));
-    lines.append(i18n("TS:  1st Sun in Oct. (02:00) / Last Sun in Mar. (02:00)"));
-    lines.append(i18n("US:  1st Sun in Apr. (02:00) / Last Sun in Oct. (02:00)"));
-    lines.append(i18n("ZN: Apr. 1 (01:00) / Oct. 1 (00:00)"));
+    QFile file;
+
+    if (KSUtils::openDataFile(file, "TZrules.dat") == false)
+        return;
+
+    QTextStream stream(&file);
 
     QString message = i18n("Daylight Saving Time Rules");
 
     QPointer<QDialog> tzd = new QDialog(this);
     tzd->setWindowTitle(message);
 
-    QListWidget *lw = new QListWidget(tzd);
-    lw->addItems(lines);
-    //This is pretty lame...I have to measure the width of the first item in the
-    //list widget, in order to set its width properly.  Why doesn't it just resize
-    //the widget to fit the contents automatically?  I tried setting the sizePolicy,
-    //no joy...
-    int w = int(1.1 * lw->visualItemRect(lw->item(0)).width());
-    lw->setMinimumWidth(w);
+    QPlainTextEdit *textEdit = new QPlainTextEdit(tzd);
+    textEdit->setReadOnly(true);
+    while (stream.atEnd() == false)
+    {
+        QString line = stream.readLine();
+        if (line.startsWith("#"))
+            textEdit->appendPlainText(line);
+    }
+    textEdit->moveCursor(QTextCursor::Start);
+    textEdit->ensureCursorVisible();
 
     QVBoxLayout *mainLayout = new QVBoxLayout;
-    mainLayout->addWidget(lw);
+    mainLayout->addWidget(textEdit);
 
     QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Close);
     mainLayout->addWidget(buttonBox);
@@ -628,12 +625,12 @@ void LocationDialog::dataChanged()
 {
     dataModified = true;
     ld->AddCityButton->setEnabled(nameModified && !ld->NewCityName->text().isEmpty() &&
-                                  !ld->NewCountryName->text().isEmpty() && checkLongLat());
+                                  !ld->NewCountryName->text().isEmpty() && checkLongLat() && ld->TZBox->currentIndex() != -1);
     if (SelectedCity)
         ld->UpdateButton->setEnabled(SelectedCity->isReadOnly() == false && !ld->NewCityName->text().isEmpty() &&
-                                     !ld->NewCountryName->text().isEmpty() && checkLongLat());
+                                     !ld->NewCountryName->text().isEmpty() && checkLongLat() && ld->TZBox->currentIndex() != -1);
 
-    if (!addCityEnabled())
+    if (ld->AddCityButton->isEnabled() == false && ld->UpdateButton->isEnabled() == false)
     {
         if (ld->NewCityName->text().isEmpty())
         {
@@ -647,9 +644,13 @@ void LocationDialog::dataChanged()
         {
             ld->errorLabel->setText(i18n("Cannot add new location -- invalid latitude / longitude"));
         }
-        else
+        else if (ld->TZBox->currentIndex() == -1)
         {
-            ld->errorLabel->setText(i18n("Cannot add new location -- please check all fields"));
+            ld->errorLabel->setText(i18n("Cannot add new location -- missing UTC Offset"));
+        }
+        else if (SelectedCity->isReadOnly())
+        {
+            ld->errorLabel->setText(i18n("City is Read Only. Change name to add new city."));
         }
     }
     else
@@ -660,18 +661,13 @@ void LocationDialog::dataChanged()
 
 void LocationDialog::slotOk()
 {
-    if (addCityEnabled())
+    if (ld->AddCityButton->isEnabled())
     {
         if (addCity())
             accept();
     }
     else
         accept();
-}
-
-bool LocationDialog::addCityEnabled()
-{
-    return ld->AddCityButton->isEnabled();
 }
 
 // FIXME Disable this until Qt5 works with Geoclue2
@@ -739,7 +735,7 @@ void LocationDialog::positionUpdated(const QGeoPositionInfo &info)
 
 void LocationDialog::positionUpdateError(QGeoPositionInfoSource::Error error)
 {
-    qDebug() << "Positon update error: " << error;
+    qDebug() << "Position update error: " << error;
 }
 
 void LocationDialog::positionUpdateTimeout()

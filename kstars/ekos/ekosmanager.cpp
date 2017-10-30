@@ -105,14 +105,23 @@ EkosManager::EkosManager(QWidget *parent) : QDialog(parent)
     // Clear Ekos Log
     connect(clearB, SIGNAL(clicked()), this, SLOT(clearLog()));
 
+    // Logs
+    KConfigDialog *dialog = new KConfigDialog(this, "logssettings", Options::self());
+    opsLogs = new Ekos::OpsLogs();
+    KPageWidgetItem *page = dialog->addPage(opsLogs, i18n("Logging"));
+    page->setIcon(QIcon::fromTheme("configure", QIcon(":/icons/breeze/default/configure.svg")));
+    connect(logsB, SIGNAL(clicked()), dialog, SLOT(show()));
+    connect(dialog->button(QDialogButtonBox::Apply), SIGNAL(clicked()), SLOT(updateDebugInterfaces()));
+    connect(dialog->button(QDialogButtonBox::Ok), SIGNAL(clicked()), SLOT(updateDebugInterfaces()));
+
     // Summary
-    // previewPixmap = new QPixmap(QPixmap(":/images/noimage.png"));
+    // previewPixmap = new QPixmap(QPixmap(":/images/noimage.png"));    
 
     // Profiles
     connect(addProfileB, SIGNAL(clicked()), this, SLOT(addProfile()));
     connect(editProfileB, SIGNAL(clicked()), this, SLOT(editProfile()));
     connect(deleteProfileB, SIGNAL(clicked()), this, SLOT(deleteProfile()));    
-    connect(profileCombo, static_cast<void(QComboBox::*)(const QString &)>(&QComboBox::currentIndexChanged),
+    connect(profileCombo, static_cast<void(QComboBox::*)(const QString &)>(&QComboBox::currentTextChanged),
          [=](const QString &text)
     {
         Options::setProfile(text);
@@ -175,14 +184,14 @@ EkosManager::EkosManager(QWidget *parent) : QDialog(parent)
     // FIXME
     //resize(1000,750);
 
-    previewView.reset(new FITSView(previewWidget, FITS_NORMAL));
+    summaryPreview.reset(new FITSView(previewWidget, FITS_NORMAL));
     previewWidget->setContentsMargins(0, 0, 0, 0);
-    previewView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    previewView->setBaseSize(previewWidget->size());
-    previewView->createFloatingToolBar();
-    previewView->setCursorMode(FITSView::dragCursor);
+    summaryPreview->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    summaryPreview->setBaseSize(previewWidget->size());
+    summaryPreview->createFloatingToolBar();
+    summaryPreview->setCursorMode(FITSView::dragCursor);
     QVBoxLayout *vlayout = new QVBoxLayout();
-    vlayout->addWidget(previewView.get());
+    vlayout->addWidget(summaryPreview.get());
     previewWidget->setLayout(vlayout);
 
     if (Options::ekosLeftIcons())
@@ -283,8 +292,10 @@ void EkosManager::loadProfiles()
     }
 
     profileModel->sort(0);
+    profileCombo->blockSignals(true);
     profileCombo->setModel(profileModel.get());
     profileCombo->setModelColumn(1);
+    profileCombo->blockSignals(false);
 
     // Load last used profile from options
     int index = profileCombo->findText(Options::profile());
@@ -306,6 +317,9 @@ void EkosManager::loadDrivers()
 void EkosManager::reset()
 {
     qCDebug(KSTARS_EKOS) << "Resetting Ekos Manager...";
+
+    // Filter Manager
+    filterManager.reset(new Ekos::FilterManager());
 
     nDevices = 0;
 
@@ -564,6 +578,7 @@ bool EkosManager::start()
                                             i18n("INDI Server"), KStandardGuiItem::yes(), KStandardGuiItem::no(),
                                             "ekos_shutdown_existing_indiserver")))
             {
+                DriverManager::Instance()->stopAllDevices();
                 //TODO is there a better way to do this.
                 QProcess p;
                 p.start("pkill indiserver");
@@ -898,7 +913,7 @@ void EkosManager::deviceConnected()
     else
         indiConnectionStatus = EKOS_STATUS_PENDING;
 
-    ISD::GDInterface *dev = static_cast<ISD::GDInterface *>(sender());
+    ISD::GDInterface *dev = static_cast<ISD::GDInterface *>(sender());    
 
     if (dev->getBaseDevice()->getDriverInterface() & INDI::BaseDevice::TELESCOPE_INTERFACE)
     {
@@ -940,6 +955,8 @@ void EkosManager::deviceConnected()
     {
         if (device == dev)
         {
+            connect(dev, SIGNAL(switchUpdated(ISwitchVectorProperty*)), this, SLOT(watchDebugProperty(ISwitchVectorProperty*)));
+
             ISwitchVectorProperty *configProp = device->getBaseDevice()->getSwitch("CONFIG_PROCESS");
             if (configProp && configProp->s == IPS_IDLE)
                 device->setConfig(tConfig);
@@ -1130,6 +1147,7 @@ void EkosManager::setFilter(ISD::GDInterface *filterDevice)
     initAlign();
 
     alignProcess->addFilter(filterDevice);
+
     if (Options::defaultAlignFW().isEmpty() == false)
         alignProcess->setFilter(Options::defaultAlignFW(), -1);
 }
@@ -1142,7 +1160,7 @@ void EkosManager::setFocuser(ISD::GDInterface *focuserDevice)
 
     initFocus();
 
-    focusProcess->addFocuser(focuserDevice);
+    focusProcess->addFocuser(focuserDevice);    
 
     appendLogText(i18n("%1 focuser is online.", focuserDevice->getDeviceName()));
 }
@@ -1157,6 +1175,9 @@ void EkosManager::setDome(ISD::GDInterface *domeDevice)
 
     if (captureProcess.get() != nullptr)
         captureProcess->setDome(domeDevice);
+
+    if (alignProcess.get() != nullptr)
+        alignProcess->setDome(domeDevice);
 
     if (managedDevices.contains(KSTARS_TELESCOPE))
        domeProcess->setTelescope(managedDevices[KSTARS_TELESCOPE]);
@@ -1213,11 +1234,15 @@ void EkosManager::removeDevice(ISD::GDInterface *devInterface)
             break;
 
         case KSTARS_FOCUSER:
+            // TODO this should be done for all modules
+            if (focusProcess.get() != nullptr)
+                  focusProcess.get()->removeDevice(devInterface);
             break;
 
         default:
             break;
     }
+
 
     appendLogText(i18n("%1 is offline.", devInterface->getDeviceName()));
 
@@ -1252,14 +1277,16 @@ void EkosManager::processNewText(ITextVectorProperty *tvp)
 {
     if (!strcmp(tvp->name, "FILTER_NAME"))
     {
-        if (captureProcess.get() != nullptr)
+        //filterManager->updateFilterNames();
+
+        /*if (captureProcess.get() != nullptr)
             captureProcess->checkFilter();
 
         if (focusProcess.get() != nullptr)
             focusProcess->checkFilter();
 
         if (alignProcess.get() != nullptr)
-            alignProcess->checkFilter();
+            alignProcess->checkFilter();*/
     }
 }
 
@@ -1303,8 +1330,9 @@ void EkosManager::processNewNumber(INumberVectorProperty *nvp)
         return;
     }
 
+    /*
     if (!strcmp(nvp->name, "FILTER_SLOT"))
-    {
+    {        
         if (captureProcess.get() != nullptr)
             captureProcess->checkFilter();
 
@@ -1313,17 +1341,49 @@ void EkosManager::processNewNumber(INumberVectorProperty *nvp)
 
         if (alignProcess.get() != nullptr)
             alignProcess->checkFilter();
+
     }
+    */
 }
 
 void EkosManager::processNewProperty(INDI::Property *prop)
 {
+    ISD::GenericDevice *deviceInterface = qobject_cast<ISD::GenericDevice *>(sender());
+
     if (!strcmp(prop->getName(), "CONNECTION") && currentProfile->autoConnect)
     {
-        ISD::GenericDevice *dev = qobject_cast<ISD::GenericDevice *>(sender());
-        if (dev)
-            dev->Connect();
+        deviceInterface->Connect();
         return;
+    }
+
+    // Check if we need to turn on DEBUG for logging purposes
+    if (!strcmp(prop->getName(), "DEBUG"))
+    {
+        uint16_t interface = deviceInterface->getBaseDevice()->getDriverInterface();
+        if ( opsLogs->getINDIDebugInterface() & interface )
+        {
+            // Check if we need to enable debug logging for the INDI drivers.
+            ISwitchVectorProperty *debugSP = prop->getSwitch();
+            debugSP->sp[0].s = ISS_ON;
+            debugSP->sp[1].s = ISS_OFF;
+            deviceInterface->getDriverInfo()->getClientManager()->sendNewSwitch(debugSP);
+        }
+    }
+
+    // Handle debug levels for logging purposes
+    if (!strcmp(prop->getName(), "DEBUG_LEVEL"))
+    {
+            uint16_t interface = deviceInterface->getBaseDevice()->getDriverInterface();
+            // Check if the logging option for the specific device class is on and if the device interface matches it.
+            if ( opsLogs->getINDIDebugInterface() & interface )
+            {
+                // Turn on everything
+               ISwitchVectorProperty *debugLevel = prop->getSwitch();
+               for (int i=0; i < debugLevel->nsp; i++)
+                   debugLevel->sp[i].s = ISS_ON;
+
+               deviceInterface->getDriverInfo()->getClientManager()->sendNewSwitch(debugLevel);
+            }
     }
 
     if (!strcmp(prop->getName(), "CCD_INFO") || !strcmp(prop->getName(), "GUIDER_INFO"))
@@ -1415,8 +1475,9 @@ void EkosManager::processNewProperty(INDI::Property *prop)
         return;
     }
 
+    /*
     if (!strcmp(prop->getName(), "FILTER_NAME"))
-    {
+    {        
         if (captureProcess.get() != nullptr)
             captureProcess->checkFilter();
 
@@ -1426,8 +1487,10 @@ void EkosManager::processNewProperty(INDI::Property *prop)
         if (alignProcess.get() != nullptr)
             alignProcess->checkFilter();
 
+
         return;
     }
+    */
 
     if (!strcmp(prop->getName(), "ASTROMETRY_SOLVER"))
     {
@@ -1442,14 +1505,20 @@ void EkosManager::processNewProperty(INDI::Property *prop)
         }
     }
 
-    if (!strcmp(prop->getName(), "ABS_ROTATOR_POSITION"))
+    if (!strcmp(prop->getName(), "ABS_ROTATOR_ANGLE"))
     {
+        managedDevices[KSTARS_ROTATOR] = deviceInterface;
         if (captureProcess.get() != nullptr)
-        {
-            ISD::GDInterface *interface = qobject_cast<ISD::GDInterface *>(sender());
-            if (interface)
-                captureProcess->setRotator(interface);
-        }
+            captureProcess->setRotator(deviceInterface);
+        if (alignProcess.get() != nullptr)
+            alignProcess->setRotator(deviceInterface);
+    }
+
+    if (!strcmp(prop->getName(), "GPS_REFRESH"))
+    {
+        managedDevices[KSTARS_GPS] = deviceInterface;
+        if (mountProcess.get() != nullptr)
+            mountProcess->setGPS(deviceInterface);
     }
 
     if (focusProcess.get() != nullptr && strstr(prop->getName(), "FOCUS_"))
@@ -1612,6 +1681,8 @@ void EkosManager::initCapture()
     captureProgress->setEnabled(true);
     imageProgress->setEnabled(true);
 
+    captureProcess->setFilterManager(filterManager);
+
     if (!capturePI)
     {
         capturePI = new QProgressIndicator(captureProcess.get());
@@ -1635,12 +1706,6 @@ void EkosManager::initCapture()
                 SLOT(setFocusStatus(Ekos::FocusState)), Qt::UniqueConnection);
         connect(focusProcess.get(), &Ekos::Focus::newHFR, captureProcess.get(), &Ekos::Capture::setHFR, Qt::UniqueConnection);
 
-        // Adjust focus position
-        connect(captureProcess.get(), SIGNAL(newFocusOffset(int16_t)), focusProcess.get(), SLOT(adjustRelativeFocus(int16_t)),
-                Qt::UniqueConnection);
-        connect(focusProcess.get(), SIGNAL(focusPositionAdjusted()), captureProcess.get(), SLOT(preparePreCaptureActions()),
-                Qt::UniqueConnection);
-
         // Meridian Flip
         connect(captureProcess.get(), SIGNAL(meridianFlipStarted()), focusProcess.get(), SLOT(resetFrame()), Qt::UniqueConnection);
     }
@@ -1650,6 +1715,10 @@ void EkosManager::initCapture()
         // Alignment flag
         connect(alignProcess.get(), SIGNAL(newStatus(Ekos::AlignState)), captureProcess.get(),
                 SLOT(setAlignStatus(Ekos::AlignState)), Qt::UniqueConnection);
+
+        // Solver data
+        connect(alignProcess.get(), SIGNAL(newSolverResults(double,double,double,double)), captureProcess.get(),
+                SLOT(setAlignResults(double,double,double,double)), Qt::UniqueConnection);
 
         // Capture Status
         connect(captureProcess.get(), SIGNAL(newStatus(Ekos::CaptureState)), alignProcess.get(),
@@ -1671,6 +1740,10 @@ void EkosManager::initCapture()
     if (managedDevices.contains(KSTARS_DOME))
     {
         captureProcess->setDome(managedDevices[KSTARS_DOME]);
+    }
+    if (managedDevices.contains(KSTARS_ROTATOR))
+    {
+        captureProcess->setRotator(managedDevices[KSTARS_ROTATOR]);
     }
 }
 
@@ -1699,11 +1772,18 @@ void EkosManager::initAlign()
         toolsWidget->setTabIcon(index, icon);
     }
 
+    alignProcess->setFilterManager(filterManager);
+
     if (captureProcess.get() != nullptr)
     {
         // Align Status
         connect(alignProcess.get(), SIGNAL(newStatus(Ekos::AlignState)), captureProcess.get(),
                 SLOT(setAlignStatus(Ekos::AlignState)), Qt::UniqueConnection);
+
+        // Solver data
+        connect(alignProcess.get(), SIGNAL(newSolverResults(double,double,double,double)), captureProcess.get(),
+                SLOT(setAlignResults(double,double,double,double)), Qt::UniqueConnection);
+
         // Capture Status
         connect(captureProcess.get(), SIGNAL(newStatus(Ekos::CaptureState)), alignProcess.get(),
                 SLOT(setCaptureStatus(Ekos::CaptureState)), Qt::UniqueConnection);
@@ -1711,9 +1791,6 @@ void EkosManager::initAlign()
 
     if (focusProcess.get() != nullptr)
     {
-        // Filter lock
-        //connect(focusProcess.get(), SIGNAL(filterLockUpdated(ISD::GDInterface*,int)), alignProcess.get(),
-                //SLOT(setLockedFilter(ISD::GDInterface*,int)), Qt::UniqueConnection);
         connect(focusProcess.get(), SIGNAL(newStatus(Ekos::FocusState)), alignProcess.get(), SLOT(setFocusStatus(Ekos::FocusState)),
                 Qt::UniqueConnection);
     }
@@ -1721,6 +1798,15 @@ void EkosManager::initAlign()
     if (mountProcess.get() != nullptr)
         connect(mountProcess.get(), SIGNAL(newStatus(ISD::Telescope::TelescopeStatus)), alignProcess.get(),
                 SLOT(setMountStatus(ISD::Telescope::TelescopeStatus)), Qt::UniqueConnection);
+
+    if (managedDevices.contains(KSTARS_DOME))
+    {
+        alignProcess->setDome(managedDevices[KSTARS_DOME]);
+    }
+    if (managedDevices.contains(KSTARS_ROTATOR))
+    {
+        alignProcess->setRotator(managedDevices[KSTARS_ROTATOR]);
+    }
 }
 
 void EkosManager::initFocus()
@@ -1737,6 +1823,14 @@ void EkosManager::initFocus()
     connect(focusProcess.get(), SIGNAL(newStarPixmap(QPixmap&)), this, SLOT(updateFocusStarPixmap(QPixmap&)));
     connect(focusProcess.get(), SIGNAL(newProfilePixmap(QPixmap&)), this, SLOT(updateFocusProfilePixmap(QPixmap&)));
     connect(focusProcess.get(), SIGNAL(newHFR(double)), this, SLOT(updateCurrentHFR(double)));
+
+    focusProcess->setFilterManager(filterManager);
+    connect(filterManager.data(), SIGNAL(checkFocus(double)), focusProcess.get(), SLOT(checkFocus(double)), Qt::UniqueConnection);
+    connect(focusProcess.get(), SIGNAL(newStatus(Ekos::FocusState)), filterManager.data(), SLOT(setFocusStatus(Ekos::FocusState)), Qt::UniqueConnection);
+    connect(filterManager.data(), SIGNAL(newFocusOffset(int16_t)), focusProcess.get(), SLOT(adjustRelativeFocus(int16_t)),
+            Qt::UniqueConnection);
+    connect(focusProcess.get(), SIGNAL(focusPositionAdjusted()), filterManager.data(), SLOT(setFocusOffsetComplete()),
+            Qt::UniqueConnection);
 
     if (Options::ekosLeftIcons())
     {
@@ -1765,12 +1859,6 @@ void EkosManager::initFocus()
                 SLOT(setFocusStatus(Ekos::FocusState)), Qt::UniqueConnection);
         connect(focusProcess.get(), &Ekos::Focus::newHFR, captureProcess.get(), &Ekos::Capture::setHFR, Qt::UniqueConnection);
 
-        // Adjust focus position
-        connect(captureProcess.get(), SIGNAL(newFocusOffset(int16_t)), focusProcess.get(), SLOT(adjustRelativeFocus(int16_t)),
-                Qt::UniqueConnection);
-        connect(focusProcess.get(), SIGNAL(focusPositionAdjusted()), captureProcess.get(), SLOT(preparePreCaptureActions()),
-                Qt::UniqueConnection);
-
         // Meridian Flip
         connect(captureProcess.get(), SIGNAL(meridianFlipStarted()), focusProcess.get(), SLOT(resetFrame()), Qt::UniqueConnection);
     }
@@ -1784,9 +1872,6 @@ void EkosManager::initFocus()
 
     if (alignProcess.get() != nullptr)
     {
-        // Filter lock
-        //connect(focusProcess.get(), SIGNAL(filterLockUpdated(ISD::GDInterface*,int)), alignProcess.get(),
-                //SLOT(setLockedFilter(ISD::GDInterface*,int)), Qt::UniqueConnection);
         connect(focusProcess.get(), SIGNAL(newStatus(Ekos::FocusState)), alignProcess.get(), SLOT(setFocusStatus(Ekos::FocusState)),
                 Qt::UniqueConnection);
     }
@@ -1822,6 +1907,9 @@ void EkosManager::initMount()
     connect(mountProcess.get(), SIGNAL(newStatus(ISD::Telescope::TelescopeStatus)), this,
             SLOT(updateMountStatus(ISD::Telescope::TelescopeStatus)));
     connect(mountProcess.get(), SIGNAL(newTarget(QString)), mountTarget, SLOT(setText(QString)));
+
+    if (managedDevices.contains(KSTARS_GPS))
+        mountProcess->setGPS(managedDevices[KSTARS_GPS]);
 
     if (Options::ekosLeftIcons())
     {
@@ -2479,6 +2567,76 @@ void EkosManager::getCurrentProfileTelescopeInfo(double &primaryFocalLength, dou
                     guideAperture = oneScope->aperture();
                 }
             }
+        }
+    }
+}
+
+void EkosManager::updateDebugInterfaces()
+{
+    KSUtils::Logging::SyncFilterRules();
+
+    for (ISD::GDInterface *device : genericDevices)
+    {
+        INDI::Property *debugProp = device->getProperty("DEBUG");
+        ISwitchVectorProperty *debugSP = nullptr;
+        if (debugProp)
+            debugSP = debugProp->getSwitch();
+        else
+            continue;
+
+        // Check if the debug interface matches the driver device class
+        if ( ( opsLogs->getINDIDebugInterface() & device->getBaseDevice()->getDriverInterface() ) &&
+               debugSP->sp[0].s != ISS_ON)
+        {
+            debugSP->sp[0].s = ISS_ON;
+            debugSP->sp[1].s = ISS_OFF;
+            device->getDriverInfo()->getClientManager()->sendNewSwitch(debugSP);
+            appendLogText(i18n("Enabling debug logging for %1...", device->getDeviceName()));
+        }
+        else if ( !( opsLogs->getINDIDebugInterface() & device->getBaseDevice()->getDriverInterface() ) &&
+                     debugSP->sp[0].s != ISS_OFF)
+        {
+            debugSP->sp[0].s = ISS_OFF;
+            debugSP->sp[1].s = ISS_ON;
+            device->getDriverInfo()->getClientManager()->sendNewSwitch(debugSP);
+            appendLogText(i18n("Disabling debug logging for %1...", device->getDeviceName()));
+        }
+
+        if (opsLogs->isINDISettingsChanged())
+            device->setConfig(SAVE_CONFIG);
+    }
+}
+
+void EkosManager::watchDebugProperty(ISwitchVectorProperty *svp)
+{
+    if (!strcmp(svp->name, "DEBUG"))
+    {
+        ISD::GenericDevice *deviceInterface = qobject_cast<ISD::GenericDevice *>(sender());
+
+        // We don't process pure general interfaces
+        if (deviceInterface->getBaseDevice()->getDriverInterface() == INDI::BaseDevice::GENERAL_INTERFACE)
+            return;
+
+        // If debug was turned off, but our logging policy requires it then turn it back on.
+        // We turn on debug logging if AT LEAST one driver interface is selected by the logging settings
+        if (svp->s == IPS_OK && svp->sp[0].s == ISS_OFF &&
+                (opsLogs->getINDIDebugInterface() & deviceInterface->getBaseDevice()->getDriverInterface()))
+        {
+            svp->sp[0].s = ISS_ON;
+            svp->sp[1].s = ISS_OFF;
+            deviceInterface->getDriverInfo()->getClientManager()->sendNewSwitch(svp);
+            appendLogText(i18n("Re-enabling debug logging for %1...", deviceInterface->getDeviceName()));
+        }
+        // To turn off debug logging, NONE of the driver interfaces should be enabled in logging settings.
+        // For example, if we have CCD+FilterWheel device and CCD + Filter Wheel logging was turned on in
+        // the log settings, then if the user turns off only CCD logging, the debug logging is NOT
+        // turned off until he turns off Filter Wheel logging as well.
+        else if (svp->s == IPS_OK && svp->sp[0].s == ISS_ON && !(opsLogs->getINDIDebugInterface() & deviceInterface->getBaseDevice()->getDriverInterface()))
+        {
+            svp->sp[0].s = ISS_OFF;
+            svp->sp[1].s = ISS_ON;
+            deviceInterface->getDriverInfo()->getClientManager()->sendNewSwitch(svp);
+            appendLogText(i18n("Re-disabling debug logging for %1...", deviceInterface->getDeviceName()));
         }
     }
 }

@@ -18,6 +18,7 @@
 #include "indilistener.h"
 #include "kspaths.h"
 #include "kstars.h"
+#include "indidbus.h"
 #include "kstarsdata.h"
 #include "Options.h"
 #include "servermanager.h"
@@ -73,7 +74,11 @@ DriverManager *DriverManager::_DriverManager = nullptr;
 DriverManager *DriverManager::Instance()
 {
     if (_DriverManager == nullptr)
+    {
         _DriverManager = new DriverManager(KStars::Instance());
+        INDIDBus *indiDBUS = new INDIDBus(KStars::Instance());
+        Q_UNUSED(indiDBUS);
+    }
 
     return _DriverManager;
 }
@@ -636,8 +641,7 @@ void DriverManager::processServerTermination(ServerManager *server)
     for (auto &dv : driversList)
         if (dv->getServerManager() == server)
         {
-            dv->setServerState(false);
-            dv->clear();
+            dv->reset();
         }
 
     if (server->getMode() == SERVER_ONLY)

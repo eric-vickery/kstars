@@ -11,6 +11,7 @@
 
 #include "indi/indistd.h"
 #include "indi/indiccd.h"
+#include "ekos/auxiliary/filtermanager.h"
 #include "skyobjects/skypoint.h"
 
 #include <QTableWidgetItem>
@@ -41,8 +42,7 @@ class SequenceJob : public QObject
     typedef enum
     {
         ACTION_FILTER,
-        ACTION_TEMPERATURE,
-        ACTION_POST_FOCUS,
+        ACTION_TEMPERATURE,        
         ACTION_ROTATOR
     } PrepareActions;
 
@@ -76,8 +76,8 @@ class SequenceJob : public QObject
     void setActiveChip(ISD::CCDChip *chip) { activeChip = chip; }
     ISD::CCDChip *getActiveChip() { return activeChip; }
 
-    void setFITSDir(const QString &dir) { fitsDir = dir; }
-    const QString &getFITSDir() { return fitsDir; }
+    void setLocalDir(const QString &dir) { localDirectory = dir; }
+    const QString &getLocalDir() { return localDirectory; }
 
     void setTargetFilter(int pos, const QString &name);
     int getTargetFilter() { return targetFilter; }
@@ -88,6 +88,8 @@ class SequenceJob : public QObject
 
     void setFrameType(CCDFrameType type);
     CCDFrameType getFrameType() { return frameType; }
+
+    void setFilterManager(const QSharedPointer<FilterManager> &manager) { filterManager = manager; }
 
     void setCaptureFilter(FITSScale capFilter) { captureFilter = capFilter; }
     FITSScale getCaptureFilter() { return captureFilter; }
@@ -168,12 +170,6 @@ class SequenceJob : public QObject
     bool getEnforceTemperature() const;
     void setEnforceTemperature(bool value);
 
-    QString getRootFITSDir() const;
-    void setRootFITSDir(const QString &value);
-
-    bool getFilterPostFocusReady() const;
-    void setFilterPostFocusReady(bool value);
-
     QString getPostCaptureScript() const;
     void setPostCaptureScript(const QString &value);
 
@@ -189,16 +185,20 @@ class SequenceJob : public QObject
     double getGain() const;
     void setGain(double value);
 
-    int32_t getTargetRotation() const;
-    void setTargetRotation(int32_t value);
+    double getTargetRotation() const;
+    void setTargetRotation(double value);
 
-    void setCurrentRotation(int32_t value);
+    void setCurrentRotation(double value);
 
     QMap<QString, QMap<QString, double> > getCustomProperties() const;
     void setCustomProperties(const QMap<QString, QMap<QString, double> > &value);
 
+    QString getDirectoryPostfix() const;
+    void setDirectoryPostfix(const QString &value);    
+
 signals:
     void prepareComplete();
+    void prepareState(Ekos::CaptureState state);
     void checkFocus();
 
 private:
@@ -237,12 +237,10 @@ private:
     double targetTemperature { 0 };
     double gain { -1 };
     // Rotation in absolute ticks, NOT angle
-    int32_t targetRotation { 0 };
-    int32_t currentRotation { 0 };
+    double targetRotation { 0 };
+    double currentRotation { 0 };
     FITSScale captureFilter { FITS_NONE };
-    QTableWidgetItem *statusCell { nullptr };
-    QString fitsDir;
-    QString rootFITSDir;
+    QTableWidgetItem *statusCell { nullptr };    
     QString postCaptureScript;
 
     ISD::CCD::UploadMode uploadMode { ISD::CCD::UPLOAD_CLIENT };
@@ -250,8 +248,10 @@ private:
     // Transfer Format
     ISD::CCD::TransferFormat transforFormat { ISD::CCD::FORMAT_FITS };
 
-    // TODO getters and settings
-    QString remoteDir;
+    // Directory Settings
+    QString localDirectory;
+    QString remoteDirectory;
+    QString directoryPostfix;
 
     bool filterPrefixEnabled { false };
     bool expPrefixEnabled { false };
@@ -276,5 +276,8 @@ private:
     QMap<PrepareActions, bool> prepareActions;
 
     QMap<QString, QMap<QString,double>> customProperties;
+
+    // Filter Manager
+    QSharedPointer<FilterManager> filterManager;
 };
 }

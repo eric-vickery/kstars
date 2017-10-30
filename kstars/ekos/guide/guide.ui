@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>682</width>
-    <height>486</height>
+    <width>686</width>
+    <height>484</height>
    </rect>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout_5">
@@ -156,7 +156,7 @@
              <number>1</number>
             </property>
             <property name="verticalSpacing">
-             <number>5</number>
+             <number>3</number>
             </property>
             <item row="3" column="2">
              <widget class="QLabel" name="label_8">
@@ -231,6 +231,9 @@
             </item>
             <item row="2" column="1">
              <widget class="QDoubleSpinBox" name="exposureIN">
+              <property name="decimals">
+               <number>3</number>
+              </property>
               <property name="maximum">
                <double>60.000000000000000</double>
               </property>
@@ -422,6 +425,9 @@
           </item>
           <item>
            <layout class="QGridLayout" name="gridLayout_4">
+            <property name="spacing">
+             <number>3</number>
+            </property>
             <item row="0" column="0">
              <widget class="QLabel" name="l_5">
               <property name="text">
@@ -540,62 +546,20 @@
           </item>
           <item>
            <layout class="QGridLayout" name="gridLayout">
-            <item row="0" column="0">
-             <widget class="QLabel" name="l_16">
-              <property name="text">
-               <string>Guiding Delta &quot;</string>
-              </property>
-             </widget>
-            </item>
-            <item row="0" column="1">
-             <layout class="QHBoxLayout" name="horizontalLayout_3">
-              <property name="spacing">
-               <number>1</number>
-              </property>
-              <item>
-               <widget class="QLabel" name="l_DeltaRA">
-                <property name="toolTip">
-                 <string>Immediate Guiding RA deviation in arcseconds</string>
-                </property>
-                <property name="frameShape">
-                 <enum>QFrame::StyledPanel</enum>
-                </property>
-                <property name="frameShadow">
-                 <enum>QFrame::Sunken</enum>
-                </property>
-                <property name="text">
-                 <string notr="true">xxx</string>
-                </property>
-                <property name="alignment">
-                 <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QLabel" name="l_DeltaDEC">
-                <property name="toolTip">
-                 <string>Immediate Guiding DEC deviation in arcseconds</string>
-                </property>
-                <property name="frameShape">
-                 <enum>QFrame::StyledPanel</enum>
-                </property>
-                <property name="frameShadow">
-                 <enum>QFrame::Sunken</enum>
-                </property>
-                <property name="text">
-                 <string notr="true">xxx</string>
-                </property>
-                <property name="alignment">
-                 <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </item>
+            <property name="spacing">
+             <number>3</number>
+            </property>
             <item row="1" column="0">
              <widget class="QLabel" name="l_17">
               <property name="text">
                <string>Pulse Length (ms)</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="0">
+             <widget class="QLabel" name="l_16">
+              <property name="text">
+               <string>Guiding Delta &quot;</string>
               </property>
              </widget>
             </item>
@@ -644,6 +608,51 @@
               </item>
              </layout>
             </item>
+            <item row="0" column="1">
+             <layout class="QHBoxLayout" name="horizontalLayout_3">
+              <property name="spacing">
+               <number>1</number>
+              </property>
+              <item>
+               <widget class="QLabel" name="l_DeltaRA">
+                <property name="toolTip">
+                 <string>Immediate Guiding RA deviation in arcseconds</string>
+                </property>
+                <property name="frameShape">
+                 <enum>QFrame::StyledPanel</enum>
+                </property>
+                <property name="frameShadow">
+                 <enum>QFrame::Sunken</enum>
+                </property>
+                <property name="text">
+                 <string notr="true">xxx</string>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="l_DeltaDEC">
+                <property name="toolTip">
+                 <string>Immediate Guiding DEC deviation in arcseconds</string>
+                </property>
+                <property name="frameShape">
+                 <enum>QFrame::StyledPanel</enum>
+                </property>
+                <property name="frameShadow">
+                 <enum>QFrame::Sunken</enum>
+                </property>
+                <property name="text">
+                 <string notr="true">xxx</string>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
             <item row="2" column="0">
              <layout class="QHBoxLayout" name="horizontalLayout">
               <item>
@@ -652,7 +661,7 @@
                  <string>RA Guiding RMS error</string>
                 </property>
                 <property name="text">
-                 <string>Sig(RA)&quot;</string>
+                 <string>RA RMS&quot;</string>
                 </property>
                </widget>
               </item>
@@ -685,7 +694,7 @@
                  <string>DEC Guiding RMS error</string>
                 </property>
                 <property name="text">
-                 <string>Sig(DEC)&quot;</string>
+                 <string>DE RMS&quot;</string>
                 </property>
                </widget>
               </item>
@@ -710,6 +719,35 @@
               </item>
              </layout>
             </item>
+            <item row="3" column="0">
+             <widget class="QLabel" name="label_7">
+              <property name="text">
+               <string>&lt;b&gt;Total RMS&quot;&lt;/b&gt;</string>
+              </property>
+              <property name="alignment">
+               <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="1">
+             <widget class="QLabel" name="l_TotalRMS">
+              <property name="styleSheet">
+               <string notr="true">font-weight:bold;</string>
+              </property>
+              <property name="frameShape">
+               <enum>QFrame::StyledPanel</enum>
+              </property>
+              <property name="frameShadow">
+               <enum>QFrame::Sunken</enum>
+              </property>
+              <property name="text">
+               <string>xxx</string>
+              </property>
+              <property name="alignment">
+               <set>Qt::AlignCenter</set>
+              </property>
+             </widget>
+            </item>
            </layout>
           </item>
          </layout>
@@ -719,6 +757,9 @@
      </item>
      <item>
       <layout class="QVBoxLayout" name="rightLayout">
+       <property name="spacing">
+        <number>3</number>
+       </property>
        <item>
         <widget class="QWidget" name="guideWidget" native="true">
          <property name="sizePolicy">
@@ -743,6 +784,9 @@
        </item>
        <item>
         <layout class="QHBoxLayout" name="horizontalLayout_9">
+         <property name="spacing">
+          <number>3</number>
+         </property>
          <item>
           <widget class="QGroupBox" name="driftGraphicsGroup">
            <property name="title">

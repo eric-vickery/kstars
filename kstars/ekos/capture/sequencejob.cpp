@@ -32,7 +32,7 @@ SequenceJob::SequenceJob()
 
     prepareActions[ACTION_FILTER] = true;
     prepareActions[ACTION_TEMPERATURE] = true;
-    prepareActions[ACTION_POST_FOCUS] = true;
+    //prepareActions[ACTION_POST_FOCUS] = true;
     prepareActions[ACTION_ROTATOR] = true;
 }
 
@@ -78,7 +78,8 @@ void SequenceJob::prepareCapture()
 
     activeChip->setBatchMode(!preview);
 
-    activeCCD->setFITSDir(fitsDir);
+    if (localDirectory.isEmpty() == false)
+        activeCCD->setFITSDir(localDirectory + directoryPostfix);
 
     activeCCD->setISOMode(timeStampPrefixEnabled);
 
@@ -112,12 +113,8 @@ void SequenceJob::prepareCapture()
         }
     }
 
-    if (activeChip->isBatchMode())
-    {
-        QString finalRemoteDir = fitsDir;
-        finalRemoteDir.replace(rootFITSDir, remoteDir).replace("//", "/");
-        activeCCD->updateUploadSettings(finalRemoteDir);
-    }
+    if (activeChip->isBatchMode() && remoteDirectory.isEmpty() == false)
+        activeCCD->updateUploadSettings(remoteDirectory + directoryPostfix);
 
     if (isoIndex != -1)
     {
@@ -139,25 +136,32 @@ void SequenceJob::prepareCapture()
         {
             prepareActions[ACTION_FILTER] = false;
 
-            // Post Focus on Filter change. If frame is NOT light, then we do not perform autofocusing on filter change
-            prepareActions[ACTION_POST_FOCUS] = (!Options::autoFocusOnFilterChange() || frameType != FRAME_LIGHT);
+            emit prepareState(CAPTURE_CHANGING_FILTER);
 
-            activeFilter->runCommand(INDI_SET_FILTER, &targetFilter);
+            filterManager->setFilterPosition(targetFilter);
         }
+    }
+    else
+    {
+        prepareActions[ACTION_FILTER] = true;
     }
 
     // Check if we need to update temperature
     if (enforceTemperature && fabs(targetTemperature - currentTemperature) > Options::maxTemperatureDiff())
     {
         prepareActions[ACTION_TEMPERATURE] = false;
+        emit prepareState(CAPTURE_SETTING_TEMPERATURE);
         activeCCD->setTemperature(targetTemperature);
     }
 
     // Check if we need to update rotator
-    if (targetRotation != INVALID_VALUE && currentRotation != targetRotation)
+    if (targetRotation != INVALID_VALUE && fabs(currentRotation - targetRotation)*60 > Options::astrometryRotatorThreshold())
     {
+        // PA = RawAngle * Multiplier + Offset
+        double rawAngle = (targetRotation - Options::pAOffset()) / Options::pAMultiplier();
         prepareActions[ACTION_ROTATOR] = false;
-        activeRotator->runCommand(INDI_SET_ROTATOR_TICKS, &targetRotation);
+        emit prepareState(CAPTURE_SETTING_ROTATOR);
+        activeRotator->runCommand(INDI_SET_ROTATOR_ANGLE, &rawAngle);
     }
 
     if (prepareReady == false && areActionsReady())
@@ -176,6 +180,16 @@ void SequenceJob::setAllActionsReady()
         i.next();
         i.setValue(true);
     }
+}
+
+QString SequenceJob::getDirectoryPostfix() const
+{
+    return directoryPostfix;
+}
+
+void SequenceJob::setDirectoryPostfix(const QString &value)
+{
+    directoryPostfix = value;
 }
 
 QMap<QString, QMap<QString, double> > SequenceJob::getCustomProperties() const
@@ -428,32 +442,6 @@ void SequenceJob::setEnforceTemperature(bool value)
     enforceTemperature = value;
 }
 
-QString SequenceJob::getRootFITSDir() const
-{
-    return rootFITSDir;
-}
-
-void SequenceJob::setRootFITSDir(const QString &value)
-{
-    rootFITSDir = value;
-}
-
-bool SequenceJob::getFilterPostFocusReady() const
-{
-    return prepareActions[ACTION_POST_FOCUS];
-}
-
-void SequenceJob::setFilterPostFocusReady(bool value)
-{
-    prepareActions[ACTION_POST_FOCUS] = value;
-
-    if (prepareReady == false && areActionsReady() && (status == JOB_IDLE || status == JOB_ABORTED))
-    {
-        prepareReady = true;
-        emit prepareComplete();
-    }
-}
-
 QString SequenceJob::getPostCaptureScript() const
 {
     return postCaptureScript;
@@ -476,12 +464,14 @@ void SequenceJob::setUploadMode(const ISD::CCD::UploadMode &value)
 
 QString SequenceJob::getRemoteDir() const
 {
-    return remoteDir;
+    return remoteDirectory;
 }
 
 void SequenceJob::setRemoteDir(const QString &value)
 {
-    remoteDir = value;
+    remoteDirectory = value;
+    if (remoteDirectory.endsWith("/"))
+        remoteDirectory.chop(1);
 }
 
 ISD::CCD::TransferFormat SequenceJob::getTransforFormat() const
@@ -504,12 +494,12 @@ void SequenceJob::setGain(double value)
     gain = value;
 }
 
-int32_t SequenceJob::getTargetRotation() const
+double SequenceJob::getTargetRotation() const
 {
     return targetRotation;
 }
 
-void SequenceJob::setTargetRotation(int32_t value)
+void SequenceJob::setTargetRotation(double value)
 {
     targetRotation = value;
 }
@@ -541,15 +531,15 @@ void SequenceJob::setCurrentFilter(int value)
         prepareReady = true;
         emit prepareComplete();
     }
-    else if (prepareActions[ACTION_FILTER] == true && prepareActions[ACTION_POST_FOCUS] == false)
-        emit checkFocus();
+    //else if (prepareActions[ACTION_FILTER] == true && prepareActions[ACTION_POST_FOCUS] == false)
+        //emit checkFocus();
 }
 
-void SequenceJob::setCurrentRotation(int32_t value)
+void SequenceJob::setCurrentRotation(double value)
 {
     currentRotation = value;
 
-    if (currentRotation == targetRotation)
+    if (fabs(currentRotation - targetRotation)*60 <= Options::astrometryRotatorThreshold())
         prepareActions[ACTION_ROTATOR] = true;
 
     if (prepareReady == false && areActionsReady() && (status == JOB_IDLE || status == JOB_ABORTED))

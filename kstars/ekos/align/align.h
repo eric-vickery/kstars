@@ -15,6 +15,8 @@
 #include "indi/indiccd.h"
 #include "indi/indistd.h"
 #include "indi/inditelescope.h"
+#include "indi/indidome.h"
+#include "ekos/auxiliary/filtermanager.h"
 
 #include <QTime>
 #include <QTimer>
@@ -206,6 +208,14 @@ class Align : public QWidget, public Ui::Align
          */
     void setTelescope(ISD::GDInterface *newTelescope);
 
+    /**
+         * @brief Set the current dome
+         * @newDome pointer to telescope device.
+         */
+    void setDome(ISD::GDInterface *newDome);
+
+    void setRotator(ISD::GDInterface *newRotator);
+
     /* @brief Set telescope and guide scope info. All measurements is in millimeters.
     * @param primaryFocalLength Primary Telescope Focal Length. Set to 0 to skip setting this value.
     * @param primaryAperture Primary Telescope Aperture. Set to 0 to skip setting this value.
@@ -252,6 +262,8 @@ class Align : public QWidget, public Ui::Align
          */
     void getFOVScale(double &fov_w, double &fov_h, double &fov_scale);
 
+    void setFilterManager(const QSharedPointer<FilterManager> &manager);
+
     /**
          * @brief generateOptions Generate astrometry.net option given the supplied map
          * @param optionsMap List of key=value pairs for all astrometry.net options
@@ -263,10 +275,16 @@ class Align : public QWidget, public Ui::Align
   public slots:
 
     /**
-         * @brief Process updated telescope coordinates.
-         * @coord pointer to telescope coordinate property.
+         * @brief Process updated device properties
+         * @nvp pointer to updated property.
          */
-    void processTelescopeNumber(INumberVectorProperty *coord);
+    void processNumber(INumberVectorProperty *nvp);
+
+    /**
+         * @brief Process updated device properties
+         * @svp pointer to updated property.
+         */
+    void processSwitch(ISwitchVectorProperty *svp);
 
     /**
          * @brief Check CCD and make sure information is updated and FOV is re-calculated.
@@ -349,8 +367,6 @@ class Align : public QWidget, public Ui::Align
          */
     void syncTelescopeInfo();
 
-    //void setLockedFilter(ISD::GDInterface *filter, int lockedPosition);
-
     void setFocusStatus(Ekos::FocusState state);
 
     // Log
@@ -425,25 +441,30 @@ class Align : public QWidget, public Ui::Align
     void alignTypeChanged(const QString alignType);
     void togglePreviewAlignPoints();
     void slotSortAlignmentPoints();
-    void slotAutoScaleGraph();
+    void slotAutoScaleGraph();  
+
+  protected slots:
+    /**
+         * @brief After a solver process is completed successfully, sync, slew to target, or do nothing as set by the user.
+         */
+    void executeGOTO();
+
+    /**
+     * @brief refreshAlignOptions is called when settings are updated in OpsAlign.
+     */
+    void refreshAlignOptions();
 
   signals:
     void newLog();
-    void solverComplete(bool);
-    void solverSlewComplete();
     void newStatus(Ekos::AlignState state);
-    void newSolutionDeviation(double ra_arcsecs, double de_arcsecs);
+    //void newSolutionDeviation(double ra_arcsecs, double de_arcsecs);
+    void newSolverResults(double orientation, double ra, double dec, double pixscale);
 
   private:
     /**
         * @brief Calculate Field of View of CCD+Telescope combination that we need to pass to astrometry.net solver.
         */
-    void calculateFOV();
-
-    /**
-         * @brief After a solver process is completed successfully, sync, slew to target, or do nothing as set by the user.
-         */
-    void executeGOTO();
+    void calculateFOV();    
 
     /**
          * @brief After a solver process is completed successfully, measure Azimuth or Altitude error as requested by the user.
@@ -543,6 +564,9 @@ class Align : public QWidget, public Ui::Align
     //bool loadSlewMode;
     /// If load and slew is solved successfully, coordinates obtained, slewed to target, and then captured, solved, and re-slewed to target again.
     IPState loadSlewState { IPS_IDLE };
+    // Target Position Angle of solver Load&Slew image to be used for rotator if necessary
+    double loadSlewTargetPA { std::numeric_limits<double>::quiet_NaN() };
+    double currentRotatorPA { -1 };
     /// Solver iterations count
     uint8_t solverIterations { 0 };
 
@@ -601,15 +625,16 @@ class Align : public QWidget, public Ui::Align
 
     // Pointers to our devices
     ISD::Telescope *currentTelescope { nullptr };
+    ISD::Dome *currentDome { nullptr };
     ISD::CCD *currentCCD { nullptr };
+    ISD::GDInterface *currentRotator { nullptr };
     QList<ISD::CCD *> CCDs;
 
     /// Optional device filter
     ISD::GDInterface *currentFilter { nullptr };
     /// They're generic GDInterface because they could be either ISD::CCD or ISD::Filter
     QList<ISD::GDInterface *> Filters;
-    int lockedFilterIndex { -1 };
-    int currentFilterIndex { -1 };
+    int currentFilterPosition { -1 };
     /// True if we need to change filter position and wait for result before continuing capture
     bool filterPositionPending { false };
 
@@ -691,6 +716,7 @@ class Align : public QWidget, public Ui::Align
     Ui_mountModel mountModel;
     int currentAlignmentPoint { 0 };
     bool mountModelRunning { false };
+    bool mountModelReset { false };
     bool targetAccuracyNotMet { false };
     bool previewShowing { false };
     QUrl alignURL;
@@ -700,5 +726,9 @@ class Align : public QWidget, public Ui::Align
     ISD::CCD::TelescopeType rememberTelescopeType = { ISD::CCD::TELESCOPE_UNKNOWN };
 
     double primaryFL = -1, primaryAperture = -1, guideFL = -1, guideAperture = -1;
+    bool domeReady = true;
+
+    // Filter Manager
+    QSharedPointer<FilterManager> filterManager;
 };
 }

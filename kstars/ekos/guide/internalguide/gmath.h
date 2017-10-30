@@ -22,10 +22,11 @@
 #include <QPointer>
 #include <QTime>
 #include <QVector>
-
-class QFile;
+#include <QFile>
 
 class FITSView;
+class FITSData;
+class Edge;
 
 typedef struct
 {
@@ -111,10 +112,8 @@ class cgmath : public QObject
     bool setGuiderParameters(double ccd_pix_wd, double ccd_pix_ht, double guider_aperture, double guider_focal);
     void getGuiderParameters(double *ccd_pix_wd, double *ccd_pix_ht, double *guider_aperture, double *guider_focal);
     bool setReticleParameters(double x, double y, double ang);
-    bool getReticleParameters(double *x, double *y, double *ang) const;
-    int getSquareIndex(void) const;
-    int getSquareAlgorithmIndex(void) const;
-    int getSquareSize() { return squareSize; }
+    bool getReticleParameters(double *x, double *y, double *ang) const;    
+    int getSquareAlgorithmIndex(void) const;    
     void setSquareAlgorithm(int alg_idx);
 
     Matrix getROTZ() { return ROT_Z; }
@@ -127,6 +126,9 @@ class cgmath : public QObject
     void setDeclinationSwapEnabled(bool enable) { dec_swap = enable; }
     FITSView *getGuideView() { return guideView; }
     void setPreviewMode(bool enable) { preview_mode = enable; }
+
+    // Based on PHD2 algorithm
+    QList<Edge *> PSFAutoFind(int extraEdgeAllowance=0);
 
     /*void moveSquare( double newx, double newy );
         void resizeSquare( int size_idx );
@@ -154,17 +156,14 @@ class cgmath : public QObject
     void performProcessing(void);
 
     // Math
-    bool calculateAndSetReticle1D(double start_x, double start_y, double end_x, double end_y, int totalPulse = -1);
+    bool calculateAndSetReticle1D(double start_x, double start_y, double end_x, double end_y, int RATotalPulse = -1);
     bool calculateAndSetReticle2D(double start_ra_x, double start_ra_y, double end_ra_x, double end_ra_y,
                                   double start_dec_x, double start_dec_y, double end_dec_x, double end_dec_y,
-                                  bool *swap_dec, int totalPulse = -1);
+                                  bool *swap_dec, int RATotalPulse = -1, int DETotalPulse = -1);
     double calculatePhi(double start_x, double start_y, double end_x, double end_y) const;
 
     // Dither
     double getDitherRate(int axis);
-
-    // Logging
-    void setLogFile(QFile *file);
 
     bool isImageGuideEnabled() const;
     void setImageGuideEnabled(bool value);
@@ -181,13 +180,16 @@ class cgmath : public QObject
     Vector findLocalStarPosition(void) const;
 
     // Creates a new float image from the guideView image data. The returned image MUST be deleted later or memory will leak.
-    float *createFloatImage() const;
+    float *createFloatImage(FITSData *target=nullptr) const;
 
     void do_ticks(void);
     Vector point2arcsec(const Vector &p) const;
     void process_axes(void);
     void calc_square_err(void);
     const char *get_direction_string(GuideDirection dir);
+
+    // Logging
+    void createGuideLog();
 
     /// Global channel ticker
     uint32_t ticks { 0 };
@@ -207,9 +209,6 @@ class cgmath : public QObject
     bool lost_star { false };
     bool dec_swap { false };
 
-    // square variables
-    /// Analyzing square size
-    int squareSize { 0 };
     /// Index of threshold algorithm
     int square_alg_idx { SMART_THRESHOLD };
     int subBinX { 1 };
@@ -254,6 +253,6 @@ class cgmath : public QObject
     // dithering
     double ditherRate[2];
 
-    QFile *logFile { nullptr };
+    QFile logFile;
     QTime logTime;
 };

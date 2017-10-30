@@ -91,6 +91,14 @@ class KSUserDB
     void GetAllHIPSSources(QList<QMap<QString,QString>> &HIPSSources);
 
     /************************************************************************
+     *********************************** DSLR *******************************
+     ************************************************************************/
+
+    void AddDSLRInfo(const QMap<QString, QVariant> &oneInfo);
+    bool DeleteDSLRInfo(const QString &model);
+    void GetAllDSLRInfos(QList<QMap<QString,QVariant>> &DSLRInfos);
+
+    /************************************************************************
      ******************************* Observers ******************************
      ************************************************************************/
 
@@ -271,15 +279,15 @@ class KSUserDB
      *
      * @return void
      **/
-    void AddFilter(const QString &vendor, const QString &model, const QString &type, const QString &offset,
-                   const QString &color, const QString &exposure);
+    void AddFilter(const QString &vendor, const QString &model, const QString &type, const QString &color,
+                             int offset, double exposure, bool useAutoFocus, const QString &lockedFilter);
     /**
      * @brief Replace a filter at given ID with new content
      *
      * @return void
      **/
-    void AddFilter(const QString &vendor, const QString &model, const QString &type, const QString &offset,
-                   const QString &color, const QString &exposure, const QString &id);
+    void AddFilter(const QString &vendor, const QString &model, const QString &type, const QString &color,
+                             int offset, double exposure, bool useAutoFocus, const QString &lockedFilter, const QString &id);
 #ifndef KSTARS_LITE
     /**
      * @brief Populate the reference passed with all filters

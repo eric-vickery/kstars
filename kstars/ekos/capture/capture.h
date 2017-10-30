@@ -18,6 +18,7 @@
 #include "indi/indidome.h"
 #include "indi/indilightbox.h"
 #include "indi/inditelescope.h"
+#include "ekos/auxiliary/filtermanager.h"
 
 #include <QTimer>
 #include <QUrl>
@@ -270,6 +271,7 @@ class Capture : public QWidget, public Ui::Capture
     void syncFrameType(ISD::GDInterface *ccd);
     void setTelescope(ISD::GDInterface *newTelescope);
     void setRotator(ISD::GDInterface *newRotator);
+    void setFilterManager(const QSharedPointer<FilterManager> &manager);
     void syncTelescopeInfo();
     void syncFilterInfo();
 
@@ -409,6 +411,7 @@ class Capture : public QWidget, public Ui::Capture
     void setGuideStatus(Ekos::GuideState state);
     // Align
     void setAlignStatus(Ekos::AlignState state);
+    void setAlignResults(double orientation, double ra, double de, double pixscale);
     // Update Mount module status
     void setMountStatus(ISD::Telescope::TelescopeStatus newState);
 
@@ -450,7 +453,7 @@ class Capture : public QWidget, public Ui::Capture
 
     // Auto Focus
     //void updateAutofocusStatus(bool status, double HFR);
-    void startPostFilterAutoFocus();
+    //void startPostFilterAutoFocus();
 
     // Timed refocus
     void startRefocusEveryNTimer();
@@ -473,8 +476,8 @@ class Capture : public QWidget, public Ui::Capture
     void postScriptFinished(int exitCode);
 
     // Filter focus offset
-    void showFilterOffsetDialog();
-    void loadFilterOffsets();
+    //void showFilterOffsetDialog();
+    //void loadFilterOffsets();
 
     // Live Video Preview
     void toggleVideoStream(bool enable);
@@ -482,6 +485,9 @@ class Capture : public QWidget, public Ui::Capture
 
     // Observer
     void showObserverDialog();
+
+    // Active Job Prepare State
+    void updatePrepareState(Ekos::CaptureState prepareState);
 
     // Rotator
     void updateRotatorNumber(INumberVectorProperty *nvp);
@@ -514,6 +520,11 @@ class Capture : public QWidget, public Ui::Capture
     void constructPrefix(QString &imagePrefix);
     double setCurrentADU(double value);
     void llsq(QVector<double> x, QVector<double> y, double &a, double &b);
+
+    // DSLR Info
+    void addDSLRInfo(const QString &model, uint32_t maxW, uint32_t maxH, double pixelW, double pixelH);
+    void cullToCameraLimits();
+    bool isModelinDSLRInfo(const QString &model);
 
     /* Meridian Flip */
     bool checkMeridianFlip();
@@ -562,9 +573,6 @@ class Capture : public QWidget, public Ui::Capture
     ISD::LightBox *lightBox { nullptr };
     ISD::Dome *dome { nullptr };
 
-    ITextVectorProperty *filterName { nullptr };
-    INumberVectorProperty *filterSlot { nullptr };
-
     QStringList logText;
     QUrl sequenceURL;
     bool mDirty { false };
@@ -608,7 +616,7 @@ class Capture : public QWidget, public Ui::Capture
     CalibrationStage calibrationStage { CAL_NONE };
     bool dustCapLightEnabled { false };
     bool lightBoxLightEnabled { false };
-    ISD::CCD::UploadMode rememberUploadMode;
+    ISD::CCD::UploadMode rememberUploadMode { ISD::CCD::UPLOAD_CLIENT };
 
     QUrl dirPath;
 
@@ -636,18 +644,12 @@ class Capture : public QWidget, public Ui::Capture
     // How many images to capture before dithering operation is executed?
     uint8_t ditherCounter { 0 };
 
-    // Map of filter focus offsets
-    struct FocusOffset
-    {
-        QString filter;
-        int16_t offset { 0 };
-    };
-
-    QList<FocusOffset *> filterFocusOffsets;
-    int16_t lastFilterOffset { 0 };
-
-    QList<OAL::Filter *> m_filterList;
-
     std::unique_ptr<CustomProperties> customPropertiesDialog;
+
+    // Filter Manager
+    QSharedPointer<FilterManager> filterManager;
+
+    // DSLR Infos
+    QList<QMap<QString,QVariant>> DSLRInfos;
 };
 }

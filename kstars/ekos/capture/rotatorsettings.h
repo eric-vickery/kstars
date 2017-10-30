@@ -25,22 +25,26 @@ public:
 
     void setTicksMinMaxStep(int32_t min, int32_t max, int32_t step);
 
-    void setCurrentTicks(int32_t ticks);
     void setCurrentAngle(double angle);
 
     bool isRotationEnforced() { return enforceRotationCheck->isChecked(); }
     void setRotationEnforced(bool enabled) { enforceRotationCheck->setChecked(enabled); }
 
-    int32_t getTargetRotationTicks() { return plannedTicksSpin->value(); }
-    void setTargetRotationTicks(int32_t value) { plannedTicksSpin->setValue(value); }
+    double getTargetRotationPA() { return targetPASpin->value(); }
+    void setTargetRotationPA(double value) { targetPASpin->setValue(value); }
     double getTargetAngle() { return angleSpin->value(); }
+    double getCurrentRotationPA() { return PAOut->text().toDouble(); }
 
-    int32_t getCurrentRotationTicks() { return ticksEdit->text().toInt(); }
+    void setPAMultiplier(double value) { PAMulSpin->setValue(value);}
+    void setPAOffset(double value) { PAOffsetSpin->setValue(value);}
 
+    void refresh();
 
 protected slots:
-    void gotoTicks();
     void gotoAngle();
+    void updatePA();
+    void setPA();
+    void syncPA(double PA);
 
 private:
     ISD::GDInterface *currentRotator { nullptr };    
