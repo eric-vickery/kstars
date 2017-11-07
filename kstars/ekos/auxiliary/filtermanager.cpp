@@ -56,6 +56,16 @@ void FilterManager::refreshFilterModel()
     filterModel->select();
     filterModel->setEditStrategy(QSqlTableModel::OnFieldChange);
 
+    // If we have an existing table but it doesn't match the number of current filters
+    // then we remove it.
+    if (filterModel->rowCount() > 0 && filterModel->rowCount() != m_currentFilterLabels.count())
+    {
+        for (int i=0; i < filterModel->rowCount(); i++)
+            filterModel->removeRow(i);
+
+        filterModel->select();
+    }
+
     // If it is first time, let's populate data
     if (filterModel->rowCount() == 0)
     {
@@ -181,7 +191,8 @@ void FilterManager::setCurrentFilter(ISD::GDInterface *filter)
     connect(filter, SIGNAL(numberUpdated(INumberVectorProperty*)), this, SLOT(processNumber(INumberVectorProperty*)));
     connect(filter, SIGNAL(switchUpdated(ISwitchVectorProperty*)), this, SLOT(processSwitch(ISwitchVectorProperty*)));
 
-    refreshFilterModel();
+    if (m_currentFilterLabels.isEmpty() == false)
+        refreshFilterModel();
 
     lastFilterOffset = m_ActiveFilters[m_currentFilterPosition-1]->offset();
 }
