@@ -1383,6 +1383,7 @@ Action=None
 Name=Captured image received
 Name[ca]=S'ha rebut la imatge capturada
 Name[ca@valencia]=S'ha rebut la imatge capturada
+Name[es]=Se ha recibido la imagen capturada
 Name[nl]=Opgenomen afbeelding ontvangen
 Name[pt]=Imagem capturada recebida
 Name[sv]=Tagen bild mottagen
